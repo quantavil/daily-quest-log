@@ -46,12 +46,12 @@ const RANKS = [
   { name: 'Warlock',       icon: '🌑', minLevel: 57,  maxLevel: 60, color: '#b794f6' },
   { name: 'Sorcerer',      icon: '🔥', minLevel: 61,  maxLevel: 64, color: '#c88ef6' },
   { name: 'Wizard',        icon: '🧙', minLevel: 65,  maxLevel: 68, color: '#d988f6' },
-  { name: 'Arcanist',      icon: '💎', minLevel: 69,  maxLevel: 72, color: '#ea82f6' },
+  { name: 'Arcanist',      icon: '🪄', minLevel: 69,  maxLevel: 72, color: '#ea82f6' },
   { name: 'Magus',         icon: '⭐', minLevel: 73,  maxLevel: 76, color: '#f67cc8' },
   { name: 'Archmagus',     icon: '🌟', minLevel: 81,  maxLevel: 85, color: '#f6ad55' },
   { name: 'Sage',          icon: '🦉', minLevel: 86,  maxLevel: 90, color: '#fc8181' },
   { name: 'Oracle',        icon: '🔮', minLevel: 91,  maxLevel: 95, color: '#ffa07a' },
-  { name: 'Ascendant',     icon: '☄️', minLevel: 96,  maxLevel: 99, color: '#ffdf00' },
+  { name: 'Paragon',       icon: '💎', minLevel: 96,  maxLevel: 99, color: '#ffdf00' },
   { name: 'Archmage',      icon: '👑', minLevel: 100, maxLevel: Infinity, color: '#ffd700' }
 ];
 
