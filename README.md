@@ -1,121 +1,165 @@
-# Daily Quest Log (JSON)
+# Daily Quest Log
 
 A modern, JSON-backed Obsidian plugin for gamifying your habits and routines. Write your quests in HABITS.md, track time and completions in-app, and store everything in a single JSON file. No monthly Markdown logs. No legacy code. Clean, fast, and reliable.
 
-- Data store: QuestLog.json (configurable)
-- Source of truth: HABITS.md
-- Today view, timers, XP, levels, and undo supported
-- Modern TypeScript/ES module setup
+- **Data store**: QuestLog.json (configurable)
+- **Source of truth**: HABITS.md
+- **Today view**: Timers, XP, levels, undo, and reporting
+- **Modern setup**: TypeScript/ES module
+
+## 🚀 Quick Start
+
+1. [Install the plugin](#installation)
+2. Create `HABITS.md` in your vault root
+3. Add quests with `#quest(daily)` tags
+4. Click the sword icon to open Today's Quests
+5. Start tracking with timers and gamify your productivity!
+
+## 📋 Features
+
+### JSON-Backed Persistence
+- Completions, timer states, and player data stored in a single JSON file (configurable path)
+- Everything is machine-readable and instant to update — no more monthly logs!
+
+### Today's Quests View
+- Shows only quests scheduled for today (based on HABITS.md)
+- Inline timers with one-click start/pause/resume/complete
+- Visual XP progress bar and level display
+
+### Smart Timers
+- Persist across Obsidian reloads
+- Auto-pause on app close
+- Supports paused sessions per quest — resume anytime
+- Overtime warnings for estimated quests
+
+### Bidirectional HABITS.md Sync
+- Completing a quest in the view checks it [x] in HABITS.md
+- Checking/unchecking directly in HABITS.md is detected and synced to JSON
+- Stable quest IDs ensure reliable tracking
+
+### XP & Leveling System
+- Configurable XP per minute, base, and exponent
+- Estimated-time-aware XP: Earn `max(estimate, actual) * rate`
+- Flat XP fallback for quests without time estimates
+- Level up with exponential scaling: `XP = base × level^exponent`
+
+### Reporting & Analytics
+- Generate detailed Markdown reports with charts
+- Visualize progress over the last 30 days
+- Top quests leaderboard and time breakdown
 
 
-Features
-- JSON-backed log
-  - Completions, timer state, and player data are stored in a single JSON file (configurable path).
-  - No more monthly Markdown tables; everything is machine-readable and instant to update.
-- Today’s Quests view
-  - Shows only quests scheduled for today (based on HABITS.md).
-  - One-click start/pause/resume/complete with inline timers.
-- Smart timers
-  - Persist across reloads.
-  - Auto-pause on app close.
-  - Supports paused sessions per quest; resume later.
-- HABITS.md sync
-  - Checking a quest in the view marks it [x] in HABITS.md.
-  - Checking/unchecking directly in HABITS.md is detected and logged/undone in JSON automatically (for quests scheduled today).
-- XP and leveling
-  - Configurable XP per minute, base, and exponent.
-  - Estimated-time-aware XP: XP = max(estimate, actual) * rate. Flat fallback when no estimate.
 
+## 📝 Usage
 
+### Quest Format in HABITS.md
+Quests are defined as Markdown todo items with a `#quest(schedule)` tag. Only top-level tasks are processed.
 
+**Basic Syntax:**
+```markdown
+- [ ] Quest name #quest(schedule) (Est: time)
+```
 
-Example:
+### Scheduling Patterns
+- **`#quest(daily)`** — Every day
+- **`#quest(weekdays)`** — Monday to Friday
+- **`#quest(M,T,W,R,F,S,U)`** — Specific days (M=Monday, T=Tuesday, W=Wednesday, R=Thursday, F=Friday, S=Saturday, U=Sunday)
+  - Examples: `#quest(M,W,F)`, `#quest(T,R)`, `#quest(S,U)`
+- **`#quest(DD-MM-YYYY)`** — Specific date (e.g., `#quest(03-11-2025)`)
+
+### Time Estimates
+Add estimates to improve XP calculations. Use `(Est: Xm)` or `(Est: Xh)` format:
+
+**Examples:**
+- `(Est: 30m)` — 30 minutes
+- `(Est: 1h)` — 1 hour
+
+### Example HABITS.md
+```
+# Journal #quest(daily) (Est: 15m)
+- [ ] Exercise #quest(M,W,F) (Est: 1h)
 - [ ] Read 20 pages #quest(daily) (Est: 30m)
-- [ ] Workout #quest(MWF) Est: 1h
-- [ ] Call mom #quest(03-11-2025)
-
-Open Today’s Quests (ribbon icon with a sword). Start a quest, pause/resume, and complete it. Your XP, levels update automatically. Everything is logged to JSON.
-
-Writing quests in HABITS.md
-- Quests are Markdown tasks with a #quest(...) tag.
-- Only top-level tasks are considered (no nested/indented subtasks).
-- A quest line looks like:
-- [ ] Do a thing #quest(schedule) [Est: 30m or 1h]
-
-Examples:
-- [ ] Journal #quest(daily) (Est: 15m)
-- [ ] Study math #quest(TR) Est: 1h
 - [ ] Clean kitchen #quest(weekdays)
-- [ ] Dentist #quest(07-12-2025)
+- [ ] Dentist appointment #quest(07-12-2025)
+```
+
+### Today's Quests View
+Access via the sword ribbon icon. Shows all scheduled quests for today.
+
+**Features:**
+- Real-time timers with start/pause/resume
+- Visual progress bar for XP and level
+- Complete quests with checkbox — updates HABITS.md automatically
+- Bidirectional sync: Changes in HABITS.md reflect in the view immediately
+
+**Timer Behavior:**
+- Active timers persist across Obsidian restarts
+- Auto-pause when closing the app
+- Per-quest paused sessions — resume later
+- Overtime warning for estimated quests
+
+**XP System:**
+- **With estimate**: XP = `max(estimate, actual minutes) × rate`
+- **Without estimate**: Flat XP (default: 10)
+- Level up when XP reaches threshold: `base × level^exponent`
 
 
-Supported patterns:
-- daily — every day
-- weekdays — Monday to Friday
-- Specific days using letters:
-  - M (Mon), T (Tue), W (Wed), R (Thu), F (Fri), S (Sat), U (Sun)
-  - Example: #quest(M,W,F), #quest(T,R), #quest(S,U)
-- Specific date: DD-MM-YYYY
-  - Example: #quest(03-11-2025)
+## 🔧 Installation
 
-Notes:
-- Thursday is R and Sunday is U.
-- Specific date is checked against your local day (DD-MM-YYYY).
-- The plugin matches any combination of day letters (case-insensitive).
+### Manual Installation (Recommended)
+1. Download the latest release from [GitHub Releases](https://github.com/quantavil/daily-quest-log/releases)
+2. Extract the files into your vault's `.obsidian/plugins/daily-quest-log/` folder
+3. Restart Obsidian or reload plugins
+4. Enable "Daily Quest Log" in Community Plugins → Installed plugins
 
-Estimates syntax
-Estimates are optional and improve XP accuracy.
+### Requirements
+- Obsidian v0.1.0 or higher
+- Works on desktop only (`isDesktopOnly: false` in manifest)
 
-Accepted forms:
-- (Est: 1h)
-- (Est: 45m)
+## ⚙️ Configuration
 
-Examples:
-- [ ] Deep work #quest(weekdays) (Est: 2h)
-- [ ] Mobility (Est: 20m) #quest(daily)
+Access settings through **Settings → Community plugins → Daily Quest Log**.
 
-Using the Today view
-- Ribbon icon: "Today's Quests" (sword)
-- What you see:
-  - All top-level quests in HABITS.md that are scheduled for today and not already completed.
-  - Total estimated time.
-  - Your level, XP progress
-- Interactions:
-  - Start: begins timing a quest.
-  - Pause/Resume: pause or resume the active quest.
-  - Complete: tick the checkbox to finish the quest, grant XP, and write to JSON.
+### File Paths
+- **HABITS file path**: Where your quests are defined (default: `HABITS.md`)
+- **Quest log path**: JSON file for data storage (default: `QuestLog.json`)
 
-Timers and paused sessions
-- Active quest maintains running time and persists across reloads.
-- Auto-pause on app close.
-- You can pause a quest and later start a different quest; your paused time is kept per quest.
-- Resuming a quest restores the accumulated paused time and continues counting.
-- Each quest is identified as name||schedule. Renaming a quest or changing schedule may stop a running timer if the identity changes.
+### XP & Leveling
+- **XP per minute**: XP earned per minute on estimated quests (default: 1)
+- **Flat XP**: XP for quests without time estimates (default: 10)
+- **Leveling base**: Base value for level scaling (default: 100)
+- **Leveling exponent**: Exponent for level scaling (default: 1.5)
 
-XP, leveling
-- XP per minute: configurable in settings.
-- If a quest has an estimate:
-  - XP = round(max(estimate, actual) minutes × xpPerMinute)
-- If no estimate is provided:
-  - XP = 10 (flat)
-- Leveling:
-  - Next level XP = round(levelingBase × level^levelingExponent)
-  - XP carries over to the next level when you level up.
+**Formula**: Next level XP = `round(base × level^exponent)`
 
+### Danger Zone
+- **Reset All Data**: Permanently clear completions, reset level to 1 and XP to 0
 
-Typical project structure:
-- main.js (the code)
-- manifest.json
-- styles.css 
+## 📊 Reporting
 
-Example manifest.json:
-{
-  "id": "daily-quest-log",
-  "name": "Daily Quest Log",
-  "version": "1.7",
-  "minAppVersion": "0.1.0",
-  "description": "Transform task management into a gamified productivity system with XP, levels",
-  "author": "quantavil",
-  "authorUrl": "https://github.com/quantavil/",
-  "isDesktopOnly": false
-}
+Generate comprehensive progress reports from the Today's Quests view:
+- 30-day charts using Chart.js
+- Quest completions, XP earned, and time spent
+- Top quests leaderboard
+- Daily breakdowns
+
+Reports are saved as `Quest-Report.md` in the same folder as your HABITS file.
+
+## 🤝 Contributing
+
+- Report bugs or request features via [GitHub Issues](https://github.com/quantavil/daily-quest-log/issues)
+- Submit pull requests for improvements
+- Star the repo if you find it useful!
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) file for details.
+
+## 📋 Version History
+
+- **v2.0**: Added reporting, improved timers, settings tab
+- **v1.7**: Initial public release with basic quest tracking
+
+---
+
+*Made with ❤️ by [quantavil](https://github.com/quantavil)*
