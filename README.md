@@ -68,19 +68,38 @@ Quests are defined as Markdown todo items with a `#quest(schedule)` tag. Only to
 - **`#quest(DD-MM-YYYY)`** — Specific date (e.g., `#quest(03-11-2025)`)
 
 ### Time Estimates
-Add estimates to improve XP calculations. Use `(Est: Xm)` or `(Est: Xh)` format:
+Add estimates to improve XP calculations. Use `(Est: Xm)`, `(Est: Xh)`, or combined `(Est: Xh Ym)` formats:
 
 **Examples:**
 - `(Est: 30m)` — 30 minutes
 - `(Est: 1h)` — 1 hour
+- `(Est: 1h 23m)` — 1 hour 23 minutes
 
 ### Example HABITS.md
 ```
-# Journal #quest(daily) (Est: 15m)
-- [ ] Exercise #quest(M,W,F) (Est: 1h)
+# Daily Habits
+- [ ] Journal #quest(daily) (Est: 15m)
+- [ ] Exercise #quest(M,W,F) (Est: 1h 30m)
+- [ ] Meditate #quest(daily) (Est: 20m)
+- [ ] Plan tomorrow #quest(weekdays) (Est: 10m)
+
+# Weekly Tasks
+- [ ] Grocery shopping #quest(S) (Est: 45m)
+- [ ] Laundry #quest(S,U) (Est: 1h)
+- [ ] Deep cleaning #quest(15-10-2025)
+
+# Specific Dates
+- [ ] Dentist appointment #quest(07-12-2025) (Est: 1h)
+- [ ] Birthday party #quest(25-12-2025)
+
+# Routines
+# Morning Routine
+- [ ] Stretch #quest(daily) (Est: 5m)
+- [ ] Vitamins #quest(daily) (Est: 2m)
+
+# Evening Routine
 - [ ] Read 20 pages #quest(daily) (Est: 30m)
-- [ ] Clean kitchen #quest(weekdays)
-- [ ] Dentist appointment #quest(07-12-2025)
+- [ ] Review day #quest(daily) (Est: 10m)
 ```
 
 ### Today's Quests View

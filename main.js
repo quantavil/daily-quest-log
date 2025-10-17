@@ -27,32 +27,32 @@ const DEFAULT_SETTINGS = {
 // ============================================================================
 
 const RANKS = [
-  { name: 'Novice',        icon: '🌱', minLevel: 1,   maxLevel: 2,  color: '#a0d9a0' },
-  { name: 'Initiate',      icon: '✨', minLevel: 3,   maxLevel: 5,  color: '#b8d4f1' },
-  { name: 'Student',       icon: '📚', minLevel: 6,   maxLevel: 8,  color: '#9db4d8' },
-  { name: 'Apprentice',    icon: '📖', minLevel: 9,   maxLevel: 11, color: '#8ea5c8' },
-  { name: 'Acolyte',       icon: '🕯️', minLevel: 12,  maxLevel: 14, color: '#7eb8b8' },
-  { name: 'Adept',         icon: '🎯', minLevel: 15,  maxLevel: 17, color: '#6ec9c9' },
-  { name: 'Scholar',       icon: '🎓', minLevel: 18,  maxLevel: 20, color: '#5ed4d4' },
-  { name: 'Mystic',        icon: '🌙', minLevel: 21,  maxLevel: 24, color: '#4ed9e5' },
-  { name: 'Enchanter',     icon: '💫', minLevel: 25,  maxLevel: 28, color: '#3edff0' },
-  { name: 'Conjurer',      icon: '🪄', minLevel: 29,  maxLevel: 32, color: '#2ee5fb' },
-  { name: 'Summoner',      icon: '🌀', minLevel: 33,  maxLevel: 36, color: '#00e5ff' },
-  { name: 'Diviner',       icon: '🔮', minLevel: 37,  maxLevel: 40, color: '#20d0ff' },
-  { name: 'Illusionist',   icon: '🎭', minLevel: 41,  maxLevel: 44, color: '#40bbff' },
-  { name: 'Alchemist',     icon: '⚗️', minLevel: 45,  maxLevel: 48, color: '#60a6ff' },
-  { name: 'Evoker',        icon: '⚡', minLevel: 49,  maxLevel: 52, color: '#8091ff' },
-  { name: 'Elementalist',  icon: '🌪️', minLevel: 53,  maxLevel: 56, color: '#a07cff' },
-  { name: 'Warlock',       icon: '☠️', minLevel: 57,  maxLevel: 60, color: '#b794f6' },
-  { name: 'Sorcerer',      icon: '🔥', minLevel: 61,  maxLevel: 64, color: '#c88ef6' },
-  { name: 'Wizard',        icon: '🧙', minLevel: 65,  maxLevel: 68, color: '#d988f6' },
-  { name: 'Arcanist',      icon: '🕸️', minLevel: 69,  maxLevel: 72, color: '#ea82f6' },
-  { name: 'Magus',         icon: '🌠', minLevel: 73,  maxLevel: 76, color: '#f67cc8' },
-  { name: 'Archmagus',     icon: '🌟', minLevel: 81,  maxLevel: 85, color: '#f6ad55' },
-  { name: 'Sage',          icon: '🦉', minLevel: 86,  maxLevel: 90, color: '#fc8181' },
-  { name: 'Oracle',        icon: '👁️', minLevel: 91,  maxLevel: 95, color: '#ffa07a' },
-  { name: 'Paragon',       icon: '💎', minLevel: 96,  maxLevel: 99, color: '#ffdf00' },
-  { name: 'Archmage',      icon: '👑', minLevel: 100, maxLevel: Infinity, color: '#ffd700' }
+  { name: 'Novice', icon: '🌱', minLevel: 1, maxLevel: 2, color: '#a0d9a0' },
+  { name: 'Initiate', icon: '✨', minLevel: 3, maxLevel: 5, color: '#b8d4f1' },
+  { name: 'Student', icon: '📚', minLevel: 6, maxLevel: 8, color: '#9db4d8' },
+  { name: 'Apprentice', icon: '📖', minLevel: 9, maxLevel: 11, color: '#8ea5c8' },
+  { name: 'Acolyte', icon: '🕯️', minLevel: 12, maxLevel: 14, color: '#7eb8b8' },
+  { name: 'Adept', icon: '🎯', minLevel: 15, maxLevel: 17, color: '#6ec9c9' },
+  { name: 'Scholar', icon: '🎓', minLevel: 18, maxLevel: 20, color: '#5ed4d4' },
+  { name: 'Mystic', icon: '🌙', minLevel: 21, maxLevel: 24, color: '#4ed9e5' },
+  { name: 'Enchanter', icon: '💫', minLevel: 25, maxLevel: 28, color: '#3edff0' },
+  { name: 'Conjurer', icon: '🪄', minLevel: 29, maxLevel: 32, color: '#2ee5fb' },
+  { name: 'Summoner', icon: '🌀', minLevel: 33, maxLevel: 36, color: '#00e5ff' },
+  { name: 'Diviner', icon: '🔮', minLevel: 37, maxLevel: 40, color: '#20d0ff' },
+  { name: 'Illusionist', icon: '🎭', minLevel: 41, maxLevel: 44, color: '#40bbff' },
+  { name: 'Alchemist', icon: '⚗️', minLevel: 45, maxLevel: 48, color: '#60a6ff' },
+  { name: 'Evoker', icon: '⚡', minLevel: 49, maxLevel: 52, color: '#8091ff' },
+  { name: 'Elementalist', icon: '🌪️', minLevel: 53, maxLevel: 56, color: '#a07cff' },
+  { name: 'Warlock', icon: '☠️', minLevel: 57, maxLevel: 60, color: '#b794f6' },
+  { name: 'Sorcerer', icon: '🔥', minLevel: 61, maxLevel: 64, color: '#c88ef6' },
+  { name: 'Wizard', icon: '🧙', minLevel: 65, maxLevel: 68, color: '#d988f6' },
+  { name: 'Arcanist', icon: '🕸️', minLevel: 69, maxLevel: 72, color: '#ea82f6' },
+  { name: 'Magus', icon: '🌠', minLevel: 73, maxLevel: 76, color: '#f67cc8' },
+  { name: 'Archmagus', icon: '🌟', minLevel: 81, maxLevel: 85, color: '#f6ad55' },
+  { name: 'Sage', icon: '🦉', minLevel: 86, maxLevel: 90, color: '#fc8181' },
+  { name: 'Oracle', icon: '👁️', minLevel: 91, maxLevel: 95, color: '#ffa07a' },
+  { name: 'Paragon', icon: '💎', minLevel: 96, maxLevel: 99, color: '#ffdf00' },
+  { name: 'Archmage', icon: '👑', minLevel: 100, maxLevel: Infinity, color: '#ffd700' }
 ];
 
 
@@ -252,7 +252,10 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
       // Heading
       const heading = line.match(/^#{1,6}\s+(.+)/);
-      if (heading) { currentHeading = heading[1].trim(); continue; }
+      if (heading) {
+        currentHeading = heading[1].trim();
+        continue;
+      }
 
       // Task line (top-level)
       const task = line.match(/^\s*-\s\[([ xX])\]\s(.+)/);
@@ -267,23 +270,34 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       const qidMatch = taskText.match(/#qid\(([^)]+)\)/);
       const id = qidMatch ? qidMatch[1].trim() : null;
 
-      // Extract estimate (Est: 30m or 1h)
-      const est = taskText.match(/\(Est:\s*(\d+)\s*(h|m)\)/i);
+      // Extract estimate string, e.g., (Est: 1h 20m)
+      const estMatch = taskText.match(/\(Est:\s*([^)]+)\)/i);
       let estimateMinutes = null;
-      if (est) {
-        const v = parseInt(est[1], 10);
-        estimateMinutes = est[2].toLowerCase() === 'h' ? v * 60 : v;
+
+      if (estMatch) {
+        // Use matchAll and reduce to parse all time components (e.g., "1h", "20m")
+        const totalMinutes = [...estMatch[1].matchAll(/(\d+)\s*(h|m)/gi)].reduce(
+          (total, match) => {
+            const value = parseInt(match[1], 10);
+            const unit = match[2].toLowerCase();
+            return total + (unit === 'h' ? value * 60 : value);
+          },
+          0
+        );
+        if (totalMinutes > 0) {
+          estimateMinutes = totalMinutes;
+        }
       }
 
       // Name without tags/estimate
       const name = taskText
-        .replace(/#quest\([^)]+\)/, '')
-        .replace(/#qid\([^)]+\)/, '')
-        .replace(/\(Est:\s*\d+\s*[hm]\)/i, '')
+        .replace(/#quest\([^)]+\)/g, '')
+        .replace(/#qid\([^)]+\)/g, '')
+        .replace(/\(Est:[^)]+\)/i, '')
         .trim();
 
       quests.push({
-        id, // stable
+        id,
         name,
         schedule: qMatch[1].trim(),
         estimateMinutes,
