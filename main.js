@@ -23,6 +23,54 @@ const DEFAULT_SETTINGS = {
 };
 
 // ============================================================================
+// RANK SYSTEM
+// ============================================================================
+
+const RANKS = [
+  { name: 'Novice', icon: '🌱', minLevel: 1, maxLevel: 2, color: '#a0d9a0' },
+  { name: 'Initiate', icon: '✨', minLevel: 3, maxLevel: 5, color: '#b8d4f1' },
+  { name: 'Apprentice', icon: '📘', minLevel: 6, maxLevel: 8, color: '#9db4d8' },
+  { name: 'Seeker', icon: '🔍', minLevel: 9, maxLevel: 11, color: '#8ea5c8' },
+  { name: 'Wanderer', icon: '🌍', minLevel: 12, maxLevel: 14, color: '#7eb8b8' },
+  { name: 'Explorer', icon: '🗺️', minLevel: 15, maxLevel: 17, color: '#6ec9c9' },
+  { name: 'Pathfinder', icon: '🧭', minLevel: 18, maxLevel: 20, color: '#5ed4d4' },
+  { name: 'Adventurer', icon: '🗡️', minLevel: 21, maxLevel: 24, color: '#4ed9e5' },
+  { name: 'Wayfarer', icon: '🚶', minLevel: 25, maxLevel: 28, color: '#3edff0' },
+  { name: 'Tracker', icon: '👣', minLevel: 29, maxLevel: 32, color: '#2ee5fb' },
+  { name: 'Scout', icon: '🦅', minLevel: 33, maxLevel: 36, color: '#00e5ff' },
+  { name: 'Ranger', icon: '🏹', minLevel: 37, maxLevel: 40, color: '#20d0ff' },
+  { name: 'Warrior', icon: '⚔️', minLevel: 41, maxLevel: 44, color: '#40bbff' },
+  { name: 'Guardian', icon: '🛡️', minLevel: 45, maxLevel: 48, color: '#60a6ff' },
+  { name: 'Sentinel', icon: '🗼', minLevel: 49, maxLevel: 52, color: '#8091ff' },
+  { name: 'Vanguard', icon: '🎖️', minLevel: 53, maxLevel: 56, color: '#a07cff' },
+  { name: 'Champion', icon: '🏆', minLevel: 57, maxLevel: 60, color: '#b794f6' },
+  { name: 'Elite', icon: '💎', minLevel: 61, maxLevel: 64, color: '#c88ef6' },
+  { name: 'Master', icon: '🎯', minLevel: 65, maxLevel: 68, color: '#d988f6' },
+  { name: 'Virtuoso', icon: '🎭', minLevel: 69, maxLevel: 72, color: '#ea82f6' },
+  { name: 'Paragon', icon: '⭐', minLevel: 73, maxLevel: 76, color: '#f67cc8' },
+  { name: 'Hero', icon: '🦸', minLevel: 77, maxLevel: 80, color: '#f67ca0' },
+  { name: 'Legend', icon: '👑', minLevel: 81, maxLevel: 85, color: '#f6ad55' },
+  { name: 'Mythic', icon: '🔥', minLevel: 86, maxLevel: 90, color: '#fc8181' },
+  { name: 'Ascendant', icon: '🌟', minLevel: 91, maxLevel: 95, color: '#ffa07a' },
+  { name: 'Immortal', icon: '💫', minLevel: 96, maxLevel: 99, color: '#ffd700' },
+  { name: 'Divine', icon: '✨', minLevel: 100, maxLevel: Infinity, color: '#fff' }
+];
+
+function getRankForLevel(level) {
+  return RANKS.find(r => level >= r.minLevel && level <= r.maxLevel) || RANKS[RANKS.length - 1];
+}
+
+function getNextRank(level) {
+  const currentIndex = RANKS.findIndex(r => level >= r.minLevel && level <= r.maxLevel);
+  return currentIndex < RANKS.length - 1 ? RANKS[currentIndex + 1] : null;
+}
+
+function getLevelsToNextRank(level) {
+  const nextRank = getNextRank(level);
+  return nextRank ? nextRank.minLevel - level : 0;
+}
+
+// ============================================================================
 // UTIL
 // ============================================================================
 
@@ -84,6 +132,15 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     // Ribbon + command
     this.addRibbonIcon('target', "Today's Quests", () => this.activateTodayView());
     this.addCommand({ id: 'open-today-quests', name: "Open Today's Quests", callback: () => this.activateTodayView() });
+
+    // Update tooltip with rank after load
+    this.registerEvent(this.app.workspace.on('layout-ready', () => {
+      const rank = getRankForLevel(this.questLog.player.level);
+      const ribbonIcon = document.querySelector('.side-dock-ribbon-action[aria-label="Today\'s Quests"]');
+      if (ribbonIcon) {
+        ribbonIcon.setAttribute('aria-label', `Today's Quests • ${rank.icon} ${rank.name} (Lv${this.questLog.player.level})`);
+      }
+    }));
 
     // Watch HABITS.md for changes (bidirectional sync)
     this.registerEvent(this.app.vault.on('modify', (file) => {
@@ -420,8 +477,16 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     while (p.xp >= this.getXPForNextLevel(p.level)) {
       const need = this.getXPForNextLevel(p.level);
       p.xp -= need;
+      const oldRank = getRankForLevel(p.level);
       p.level += 1;
-      new Notice(`🎉 Level Up! You are now level ${p.level}!`);
+      const newRank = getRankForLevel(p.level);
+      
+      // Check if rank changed
+      if (oldRank.name !== newRank.name) {
+        new Notice(`🎊 RANK UP! You are now ${newRank.icon} ${newRank.name.toUpperCase()} (Level ${p.level})`, 6000);
+      } else {
+        new Notice(`🎉 Level Up! Level ${p.level} • ${newRank.icon} ${newRank.name}`);
+      }
     }
   }
 
@@ -693,6 +758,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 | Stat | Value |
 |------|-------|
+| **Current Rank** | ${getRankForLevel(stats.player.level).icon} **${getRankForLevel(stats.player.level).name}** |
 | **Current Level** | ${stats.player.level} |
 | **Current XP** | ${stats.player.xp} |
 | **Total Quests Completed** | ${stats.totalCompleted} |
@@ -943,13 +1009,19 @@ class TodayQuestsView extends ItemView {
     const totalEstimate = quests.reduce((s, q) => s + (q.estimateMinutes || 0), 0);
 
     // Header
+    const rank = getRankForLevel(player.level);
     const header = container.createDiv({ cls: 'quest-view-header' });
     const top = header.createDiv({ cls: 'quest-header-top' });
     top.createEl('h2', { text: "Today's Quests" });
     if (totalEstimate > 0) top.createDiv({ cls: 'quest-total-est', text: `Total: ${formatTime(totalEstimate)}` });
 
+    // Rank display
+    const rankDisplay = header.createDiv({ cls: 'quest-rank-display' });
+    const rankTitle = rankDisplay.createDiv({ cls: 'quest-rank-title' });
+    rankTitle.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name.toUpperCase()}</span>`;
+    const rankLevel = rankDisplay.createDiv({ cls: 'quest-rank-level', text: `Level ${player.level}` });
+
     const stats = header.createDiv({ cls: 'quest-view-stats' });
-    stats.createEl('span', { text: `Level ${player.level}` });
     stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
     stats.createEl('span', { text: `${quests.length} quest${quests.length !== 1 ? 's' : ''}` });
 
