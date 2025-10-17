@@ -60,15 +60,6 @@ function getRankForLevel(level) {
   return RANKS.find(r => level >= r.minLevel && level <= r.maxLevel) || RANKS[RANKS.length - 1];
 }
 
-function getNextRank(level) {
-  const currentIndex = RANKS.findIndex(r => level >= r.minLevel && level <= r.maxLevel);
-  return currentIndex < RANKS.length - 1 ? RANKS[currentIndex + 1] : null;
-}
-
-function getLevelsToNextRank(level) {
-  const nextRank = getNextRank(level);
-  return nextRank ? nextRank.minLevel - level : 0;
-}
 
 // ============================================================================
 // UTIL
