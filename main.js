@@ -480,7 +480,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       const oldRank = getRankForLevel(p.level);
       p.level += 1;
       const newRank = getRankForLevel(p.level);
-      
+
       // Check if rank changed
       if (oldRank.name !== newRank.name) {
         new Notice(`🎊 RANK UP! You are now ${newRank.icon} ${newRank.name.toUpperCase()} (Level ${p.level})`, 6000);
@@ -643,7 +643,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     try {
       const stats = await this.calculateStats();
       const reportContent = this.buildReportMarkdown(stats);
-      
+
       // Save to vault in same directory as HABITS.md
       const habitsPath = this.settings.habitsFilePath;
       const dir = habitsPath.includes('/') ? habitsPath.substring(0, habitsPath.lastIndexOf('/')) : '';
@@ -657,7 +657,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       }
 
       new Notice(`✓ Report generated: ${reportPath}`);
-      
+
       // Open the report
       const file = this.app.vault.getAbstractFileByPath(reportPath);
       if (file instanceof TFile) {
@@ -672,19 +672,19 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async calculateStats() {
     const { completions, player } = this.questLog;
-    
+
     // Parse HABITS to get quest names
     const questNames = {};
     const allQuests = await this.parseHabitsFile();
     allQuests.forEach(q => {
       if (q.id) questNames[q.id] = q.name;
     });
-    
+
     // Basic stats
     const totalCompleted = completions.length;
     const totalXP = completions.reduce((sum, c) => sum + (c.xpEarned || 0), 0);
     const totalMinutes = completions.reduce((sum, c) => sum + (c.minutesSpent || 0), 0);
-    
+
     // Group by date
     const byDate = {};
     completions.forEach(c => {
@@ -695,7 +695,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       byDate[c.date].xp += c.xpEarned || 0;
       byDate[c.date].minutes += c.minutesSpent || 0;
     });
-    
+
     // Group by quest
     const byQuest = {};
     completions.forEach(c => {
@@ -706,7 +706,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       byQuest[c.questId].xp += c.xpEarned || 0;
       byQuest[c.questId].minutes += c.minutesSpent || 0;
     });
-    
+
     // Last 30 days
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -722,7 +722,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         minutes: byDate[dateStr]?.minutes || 0
       });
     }
-    
+
     // Top quests
     const topQuests = Object.entries(byQuest)
       .sort((a, b) => b[1].count - a[1].count)
@@ -732,7 +732,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         name: questNames[id] || id,
         ...data
       }));
-    
+
     return {
       player,
       totalCompleted,
@@ -748,7 +748,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const now = new Date().toISOString().split('T')[0];
     const hours = Math.floor(stats.totalMinutes / 60);
     const minutes = Math.floor(stats.totalMinutes % 60);
-    
+
     return `# 📊 Quest Report
 *Generated: ${now}*
 
@@ -794,10 +794,10 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 | Rank | Quest Name | Completions | Total XP | Total Time |
 |------|-----------|-------------|----------|------------|
  ${stats.topQuests.map((q, idx) => {
-  const h = Math.floor(q.minutes / 60);
-  const m = Math.floor(q.minutes % 60);
-  return `| ${idx + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${h}h ${m}m |`;
-}).join('\n')}
+      const h = Math.floor(q.minutes / 60);
+      const m = Math.floor(q.minutes % 60);
+      return `| ${idx + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${h}h ${m}m |`;
+    }).join('\n')}
 
  ${stats.topQuests.length === 0 ? '| - | No quests completed yet | - | - | - |' : ''}
 
@@ -808,11 +808,11 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 | Date | Quests | XP Earned | Time Spent |
 |------|--------|-----------|------------|
  ${stats.last30Days.slice().reverse().map(d => {
-  const h = Math.floor(d.minutes / 60);
-  const m = Math.floor(d.minutes % 60);
-  const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-  return `| ${d.date} | ${d.count} | ${d.xp} XP | ${timeStr} |`;
-}).join('\n')}
+      const h = Math.floor(d.minutes / 60);
+      const m = Math.floor(d.minutes % 60);
+      const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+      return `| ${d.date} | ${d.count} | ${d.xp} XP | ${timeStr} |`;
+    }).join('\n')}
 
 ---
 
@@ -1013,15 +1013,16 @@ class TodayQuestsView extends ItemView {
     const header = container.createDiv({ cls: 'quest-view-header' });
     const top = header.createDiv({ cls: 'quest-header-top' });
     top.createEl('h2', { text: "Today's Quests" });
-    if (totalEstimate > 0) top.createDiv({ cls: 'quest-total-est', text: `Total: ${formatTime(totalEstimate)}` });
 
-    // Rank display
-    const rankDisplay = header.createDiv({ cls: 'quest-rank-display' });
-    const rankTitle = rankDisplay.createDiv({ cls: 'quest-rank-title' });
-    rankTitle.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name.toUpperCase()}</span>`;
-    const rankLevel = rankDisplay.createDiv({ cls: 'quest-rank-level', text: `Level ${player.level}` });
+    // Right side wrapper (total time + rank)
+    const rightSide = top.createDiv({ cls: 'quest-header-right' });
+    if (totalEstimate > 0) rightSide.createDiv({ cls: 'quest-total-est', text: `Total: ${formatTime(totalEstimate)}` });
+    const rankDisplay = rightSide.createDiv({ cls: 'quest-rank-display' });
+    rankDisplay.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name.toUpperCase()}</span>`;
 
+    // Stats (Level inline with XP and quests)
     const stats = header.createDiv({ cls: 'quest-view-stats' });
+    stats.createEl('span', { text: `Level ${player.level}` });
     stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
     stats.createEl('span', { text: `${quests.length} quest${quests.length !== 1 ? 's' : ''}` });
 
