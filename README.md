@@ -48,8 +48,6 @@ A modern, JSON-backed Obsidian plugin for gamifying your habits and routines. Wr
 - Visualize progress over the last 30 days
 - Top quests leaderboard and time breakdown
 
-
-
 ## 📝 Usage
 
 ### Quest Format in HABITS.md
@@ -88,20 +86,6 @@ Add estimates to improve XP calculations. Use `(Est: Xm)`, `(Est: Xh)`, or combi
 - [ ] Laundry #quest(S,U) (Est: 1h)
 - [ ] Deep cleaning #quest(15-10-2025)
 
-# Specific Dates
-- [ ] Dentist appointment #quest(07-12-2025) (Est: 1h)
-- [ ] Birthday party #quest(25-12-2025)
-
-# Routines
-# Morning Routine
-- [ ] Stretch #quest(daily) (Est: 5m)
-- [ ] Vitamins #quest(daily) (Est: 2m)
-
-# Evening Routine
-- [ ] Read 20 pages #quest(daily) (Est: 30m)
-- [ ] Review day #quest(daily) (Est: 10m)
-```
-
 ### Today's Quests View
 Access via the sword ribbon icon. Shows all scheduled quests for today.
 
@@ -132,7 +116,7 @@ Access via the sword ribbon icon. Shows all scheduled quests for today.
 4. Enable "Daily Quest Log" in Community Plugins → Installed plugins
 
 ### Requirements
-- Obsidian v0.1.0 or higher
+- Obsidian v1.0.0 or higher
 - Works on desktop only (`isDesktopOnly: false` in manifest)
 
 ## ⚙️ Configuration
@@ -175,11 +159,6 @@ Reports are saved as `Quest-Report.md` in the same folder as your HABITS file.
 Copyright (c) 2025 quantavil
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📋 Version History
-
-- **v2.0**: Added reporting, improved timers, settings tab
-- **v1.7**: Initial public release with basic quest tracking
 
 ---
 
