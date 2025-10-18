@@ -172,7 +172,9 @@ Reports are saved as `Quest-Report.md` in the same folder as your HABITS file.
 
 ## 📄 License
 
-MIT License - See [LICENSE](LICENSE) file for details.
+Copyright (c) 2025 quantavil
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 📋 Version History
 
