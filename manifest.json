@@ -1,8 +1,8 @@
 {
   "id": "daily-quest-log",
   "name": "Daily Quest Log",
-  "version": "2.1",
-  "minAppVersion": "0.1.0",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
   "description": "Transform task management into a gamified productivity system with XP and levels",
   "author": "quantavil",
   "authorUrl": "https://github.com/quantavil/",
