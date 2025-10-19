@@ -48,13 +48,13 @@ const RANKS = [
   { name: 'Wizard', icon: '🧙', minLevel: 65, maxLevel: 68, color: '#d988f6' },
   { name: 'Arcanist', icon: '🕸️', minLevel: 69, maxLevel: 72, color: '#ea82f6' },
   { name: 'Magus', icon: '🌠', minLevel: 73, maxLevel: 76, color: '#f67cc8' },
+  { name: 'Grand Magus', icon: '⭐', minLevel: 77, maxLevel: 80, color: '#f5a3ff' }, 
   { name: 'Archmagus', icon: '🌟', minLevel: 81, maxLevel: 85, color: '#f6ad55' },
   { name: 'Sage', icon: '🦉', minLevel: 86, maxLevel: 90, color: '#fc8181' },
   { name: 'Oracle', icon: '👁️', minLevel: 91, maxLevel: 95, color: '#ffa07a' },
-  { name: 'Paragon', icon: '💎', minLevel: 96, maxLevel: 99, color: '#ffdf00' },
-  { name: 'Archmage', icon: '👑', minLevel: 100, maxLevel: Infinity, color: '#ffd700' }
+  { name: 'Archmage', icon: '💎', minLevel: 96, maxLevel: 99, color: '#ffdf00' },
+  { name: 'Primordial Mage', icon: '👑', minLevel: 100, maxLevel: Infinity, color: '#ffd700' }
 ];
-
 
 function getRankForLevel(level) {
   return RANKS.find(r => level >= r.minLevel && level <= r.maxLevel) || RANKS[RANKS.length - 1];
