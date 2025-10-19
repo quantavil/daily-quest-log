@@ -1,21 +1,19 @@
 /**
- * Daily Quest Log - main.js (refactored)
- * A JSON-backed Obsidian plugin for gamifying habits and routines
+ * Daily Quest Log - Pure JSON Implementation
+ * No markdown sync - QuestLog.json is the single source of truth
  */
 
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
 
 // ============================================================================
-// CONSTANTS & DEFAULTS
+// CONSTANTS
 // ============================================================================
 
-const VIEW_TYPE_TODAY_QUESTS = 'daily-quest-log-today-view';
-const HABITS_FILE_DEFAULT = 'HABITS.md';
-const QUEST_LOG_FILE_DEFAULT = 'QuestLog.json';
+const VIEW_TYPE_QUESTS = 'daily-quest-log-view';
+const QUEST_LOG_FILE = 'QuestLog.json';
 
 const DEFAULT_SETTINGS = {
-  habitsFilePath: HABITS_FILE_DEFAULT,
-  questLogPath: QUEST_LOG_FILE_DEFAULT,
+  questLogPath: QUEST_LOG_FILE,
   xpPerMinute: 1,
   flatXp: 10,
   levelingBase: 100,
@@ -48,7 +46,7 @@ const RANKS = [
   { name: 'Wizard', icon: '🧙', minLevel: 65, maxLevel: 68, color: '#d988f6' },
   { name: 'Arcanist', icon: '🕸️', minLevel: 69, maxLevel: 72, color: '#ea82f6' },
   { name: 'Magus', icon: '🌠', minLevel: 73, maxLevel: 76, color: '#f67cc8' },
-  { name: 'Grand Magus', icon: '⭐', minLevel: 77, maxLevel: 80, color: '#f5a3ff' }, 
+  { name: 'Grand Magus', icon: '⭐', minLevel: 77, maxLevel: 80, color: '#f5a3ff' },
   { name: 'Archmagus', icon: '🌟', minLevel: 81, maxLevel: 85, color: '#f6ad55' },
   { name: 'Sage', icon: '🦉', minLevel: 86, maxLevel: 90, color: '#fc8181' },
   { name: 'Oracle', icon: '👁️', minLevel: 91, maxLevel: 95, color: '#ffa07a' },
@@ -60,20 +58,14 @@ function getRankForLevel(level) {
   return RANKS.find(r => level >= r.minLevel && level <= r.maxLevel) || RANKS[RANKS.length - 1];
 }
 
-
 // ============================================================================
-// UTIL
+// UTILITIES
 // ============================================================================
 
-const DAY_MAP_FULL = { sun: 0, mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6 };
-const DAY_LETTER_MAP = { u: 0, m: 1, t: 2, w: 3, r: 4, f: 5, s: 6 }; // U=Sun, R=Thu, S=Sat
-
-function safeJsonParse(s, fallback) {
-  try { return JSON.parse(s); } catch { return fallback; }
-}
+const DAY_MAP = { sun: 0, mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6 };
+const DAY_LETTERS = { u: 0, m: 1, t: 2, w: 3, r: 4, f: 5, s: 6 };
 
 function genId(len = 12) {
-  // Prefer crypto random for uniqueness
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const bytes = new Uint8Array(len);
     crypto.getRandomValues(bytes);
@@ -88,18 +80,22 @@ function formatTime(minutes) {
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
 
-  if (h > 0) {
-    return m > 0
-      ? `${h}h ${m}m ${s}s`
-      : `${h}h ${s}s`;
-  }
-  if (m > 0) {
-    return `${m}m ${s}s`;
-  }
+  if (h > 0) return m > 0 ? `${h}h ${m}m ${s}s` : `${h}h ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
 
-function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 
 // ============================================================================
 // MAIN PLUGIN
@@ -108,49 +104,35 @@ function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 module.exports = class DailyQuestLogPlugin extends Plugin {
   async onload() {
     console.log('Loading Daily Quest Log plugin...');
-    this.suppressNextModify = false;
-    this.modifyDebounce = null;
 
     await this.loadSettings();
     await this.loadQuestLog();
-
-    // Handle any active timer from previous session
     await this.handleTimerStateOnLoad();
 
-    // Register the Today view
-    this.registerView(VIEW_TYPE_TODAY_QUESTS, (leaf) => new TodayQuestsView(leaf, this));
+    this.registerView(VIEW_TYPE_QUESTS, (leaf) => new QuestView(leaf, this));
 
-    // Ribbon + command
-    this.addRibbonIcon('target', "Today's Quests", () => this.activateTodayView());
-    this.addCommand({ id: 'open-today-quests', name: "Open Today's Quests", callback: () => this.activateTodayView() });
+    this.addRibbonIcon('target', "Quest Log", () => this.activateView());
+    this.addCommand({
+      id: 'open-quest-log',
+      name: 'Open Quest Log',
+      callback: () => this.activateView()
+    });
 
-    // Update tooltip with rank after load
-    this.registerEvent(this.app.workspace.on('layout-ready', () => {
-      const rank = getRankForLevel(this.questLog.player.level);
-      const ribbonIcon = document.querySelector('.side-dock-ribbon-action[aria-label="Today\'s Quests"]');
-      if (ribbonIcon) {
-        ribbonIcon.setAttribute('aria-label', `Today's Quests • ${rank.icon} ${rank.name} (Lv${this.questLog.player.level})`);
-      }
-    }));
+    this.registerEvent(
+      this.app.workspace.on('layout-ready', () => {
+        const rank = getRankForLevel(this.questLog.player.level);
+        const ribbonIcon = document.querySelector('.side-dock-ribbon-action[aria-label="Quest Log"]');
+        if (ribbonIcon) {
+          ribbonIcon.setAttribute('aria-label', `Quest Log • ${rank.icon} ${rank.name} (Lv${this.questLog.player.level})`);
+        }
+      })
+    );
 
-    // Watch HABITS.md for changes (bidirectional sync)
-    this.registerEvent(this.app.vault.on('modify', (file) => {
-      if (!(file instanceof TFile)) return;
-      if (file.path !== this.settings.habitsFilePath) return;
-      if (this.suppressNextModify) { this.suppressNextModify = false; return; }
-
-      // Debounce to coalesce rapid changes
-      if (this.modifyDebounce) clearTimeout(this.modifyDebounce);
-      this.modifyDebounce = setTimeout(() => this.onHabitsFileModified(), 120);
-    }));
-
-    // Settings tab
-    this.addSettingTab(new DailyQuestLogSettingTab(this.app, this));
+    this.addSettingTab(new QuestLogSettingTab(this.app, this));
   }
 
   async onunload() {
     console.log('Unloading Daily Quest Log plugin...');
-    if (this.modifyDebounce) clearTimeout(this.modifyDebounce);
     await this.autoPauseActiveQuest();
   }
 
@@ -158,8 +140,13 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   // Settings
   // --------------------------------------------------------------------------
 
-  async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
-  async saveSettings() { await this.saveData(this.settings); }
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
 
   // --------------------------------------------------------------------------
   // Quest Log Data
@@ -168,21 +155,25 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async loadQuestLog() {
     const path = this.settings.questLogPath;
     const file = this.app.vault.getAbstractFileByPath(path);
+
     if (file instanceof TFile) {
       const content = await this.app.vault.read(file);
       this.questLog = safeJsonParse(content, null);
-      if (!this.questLog || typeof this.questLog !== 'object') this.initializeQuestLog();
-    } else {
+    }
+
+    if (!this.questLog || typeof this.questLog !== 'object') {
       this.initializeQuestLog();
     }
-    // Ensure structure
-    this.questLog.completions ||= []; // { questId, date, minutesSpent, xpEarned }
+
+    this.questLog.quests ||= [];
+    this.questLog.completions ||= [];
     this.questLog.player ||= { level: 1, xp: 0 };
     this.questLog.timerState ||= { activeQuestId: null, startTime: null, pausedSessions: {} };
   }
 
   initializeQuestLog() {
     this.questLog = {
+      quests: [],
       completions: [],
       player: { level: 1, xp: 0 },
       timerState: { activeQuestId: null, startTime: null, pausedSessions: {} }
@@ -193,141 +184,99 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const path = this.settings.questLogPath;
     const content = JSON.stringify(this.questLog, null, 2);
     const file = this.app.vault.getAbstractFileByPath(path);
-    file instanceof TFile ? await this.app.vault.modify(file, content) : await this.app.vault.create(path, content);
+
+    if (file instanceof TFile) {
+      await this.app.vault.modify(file, content);
+    } else {
+      await this.app.vault.create(path, content);
+    }
   }
 
   // --------------------------------------------------------------------------
-  // HABITS.md parsing and stable IDs
+  // Quest CRUD
   // --------------------------------------------------------------------------
 
-  async readHabitsFile() {
-    const file = this.app.vault.getAbstractFileByPath(this.settings.habitsFilePath);
-    if (!(file instanceof TFile)) {
-      new Notice(`HABITS.md not found at ${this.settings.habitsFilePath}`);
-      return null;
-    }
-    return await this.app.vault.read(file);
+  getActiveQuests() {
+    return this.questLog.quests
+      .filter(q => !q.archived)
+      .sort((a, b) => a.order - b.order);
   }
 
-  async writeHabitsFile(content) {
-    const file = this.app.vault.getAbstractFileByPath(this.settings.habitsFilePath);
-    if (!(file instanceof TFile)) return;
-    this.suppressNextModify = true;
-    await this.app.vault.modify(file, content);
+  async createQuest({ name, category, schedule, estimateMinutes }) {
+    const quest = {
+      id: genId(),
+      name: name.trim(),
+      category: category || 'Uncategorized',
+      schedule: schedule || 'daily',
+      estimateMinutes: estimateMinutes || null,
+      order: this.getActiveQuests().length,
+      createdAt: new Date().toISOString().split('T')[0],
+      archived: false
+    };
+
+    this.questLog.quests.push(quest);
+    await this.saveQuestLog();
+    this.refreshView();
+
+    new Notice(`✓ Quest created: ${name}`);
+    return quest;
   }
 
-  async ensureStableIdsInHabitsFile() {
-    const content = await this.readHabitsFile();
-    if (content == null) return;
-
-    const lines = content.split('\n');
-    let changed = false;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Only top-level list items with a #quest(...)
-      if (!/^\s*-\s\[([ xX])\]\s/.test(line)) continue;
-      if (!/#quest\([^)]+\)/.test(line)) continue;
-
-      // Already has qid?
-      if (/#qid\([^)]+\)/.test(line)) continue;
-
-      // Append a new #qid(id) token
-      const id = genId();
-      lines[i] = `${line} #qid(${id})`;
-      changed = true;
+  async updateQuest(id, changes) {
+    const quest = this.questLog.quests.find(q => q.id === id);
+    if (!quest) {
+      new Notice('❌ Quest not found');
+      return;
     }
 
-    if (changed) await this.writeHabitsFile(lines.join('\n'));
+    Object.assign(quest, changes);
+    await this.saveQuestLog();
+    this.refreshView();
+
+    new Notice(`✓ Quest updated`);
   }
 
-  extractQuestsFromContent(content) {
-    const lines = content.split('\n');
-    const quests = [];
-    let currentHeading = 'Uncategorized';
+  async deleteQuest(id) {
+    const quest = this.questLog.quests.find(q => q.id === id);
+    if (!quest) return;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    const confirmed = await this.showConfirmDialog(
+      '🗑️ Delete Quest',
+      `Are you sure you want to delete "${quest.name}"? This will also remove its completion history.`
+    );
 
-      // Heading
-      const heading = line.match(/^#{1,6}\s+(.+)/);
-      if (heading) {
-        currentHeading = heading[1].trim();
-        continue;
-      }
+    if (!confirmed) return;
 
-      // Task line (top-level)
-      const task = line.match(/^\s*-\s\[([ xX])\]\s(.+)/);
-      if (!task) continue;
+    quest.archived = true;
 
-      const isCompleted = task[1].toLowerCase() === 'x';
-      const taskText = task[2];
-
-      const qMatch = taskText.match(/#quest\(([^)]+)\)/);
-      if (!qMatch) continue;
-
-      const qidMatch = taskText.match(/#qid\(([^)]+)\)/);
-      const id = qidMatch ? qidMatch[1].trim() : null;
-
-      // Extract estimate string, e.g., (Est: 1h 20m)
-      const estMatch = taskText.match(/\(Est:\s*([^)]+)\)/i);
-      let estimateMinutes = null;
-
-      if (estMatch) {
-        // Use matchAll and reduce to parse all time components (e.g., "1h", "20m")
-        const totalMinutes = [...estMatch[1].matchAll(/(\d+)\s*(h|m)/gi)].reduce(
-          (total, match) => {
-            const value = parseInt(match[1], 10);
-            const unit = match[2].toLowerCase();
-            return total + (unit === 'h' ? value * 60 : value);
-          },
-          0
-        );
-        if (totalMinutes > 0) {
-          estimateMinutes = totalMinutes;
-        }
-      }
-
-      // Name without tags/estimate
-      const name = taskText
-        .replace(/#quest\([^)]+\)/g, '')
-        .replace(/#qid\([^)]+\)/g, '')
-        .replace(/\(Est:[^)]+\)/i, '')
-        .trim();
-
-      quests.push({
-        id,
-        name,
-        schedule: qMatch[1].trim(),
-        estimateMinutes,
-        isCompleted,
-        lineNumber: i,
-        category: currentHeading
-      });
+    const s = this.questLog.timerState;
+    if (s.activeQuestId === id) {
+      s.activeQuestId = null;
+      s.startTime = null;
     }
-    return quests;
+    delete s.pausedSessions[id];
+
+    await this.saveQuestLog();
+    this.refreshView();
+
+    new Notice(`✓ Quest deleted`);
   }
 
-  async parseHabitsFile() {
-    // Ensure all quest lines have #qid(...)
-    await this.ensureStableIdsInHabitsFile();
-    const content = await this.readHabitsFile();
-    if (content == null) return [];
+  async reorderQuests(questIds) {
+    questIds.forEach((id, index) => {
+      const quest = this.questLog.quests.find(q => q.id === id);
+      if (quest) quest.order = index;
+    });
 
-    const quests = this.extractQuestsFromContent(content);
+    await this.saveQuestLog();
+  }
 
-    // Cleanup pausedSessions for quests that no longer exist
-    const validIds = new Set(quests.map(q => q.id).filter(Boolean));
-    const ps = this.questLog.timerState.pausedSessions || {};
-    Object.keys(ps).forEach(k => { if (!validIds.has(k)) delete ps[k]; });
-    if (!validIds.has(this.questLog.timerState.activeQuestId)) {
-      this.questLog.timerState.activeQuestId = null;
-      this.questLog.timerState.startTime = null;
-    }
-    await this.saveQuestLog(); // persists cleanup if any
+  getTodayQuests() {
+    return this.getActiveQuests().filter(q => this.isScheduledToday(q.schedule));
+  }
 
-    return quests;
+  getOtherQuests() {
+    return this.getActiveQuests().filter(q => !this.isScheduledToday(q.schedule));
   }
 
   // --------------------------------------------------------------------------
@@ -336,31 +285,30 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   isScheduledToday(schedule) {
     if (!schedule) return false;
+
     const now = new Date();
-    const today = now.getDay(); // 0=Sun...6=Sat
+    const today = now.getDay();
     const s = schedule.trim().toLowerCase();
 
     if (s === 'daily') return true;
     if (s === 'weekdays') return today >= 1 && today <= 5;
     if (s === 'weekends') return today === 0 || today === 6;
 
-    // Specific date: DD-MM-YYYY
     const dm = s.match(/(\d{2})-(\d{2})-(\d{4})/);
     if (dm) {
       const [, d, m, y] = dm;
       const t = new Date(Number(y), Number(m) - 1, Number(d));
-      return t.getFullYear() === now.getFullYear() && t.getMonth() === now.getMonth() && t.getDate() === now.getDate();
+      return t.getFullYear() === now.getFullYear() &&
+             t.getMonth() === now.getMonth() &&
+             t.getDate() === now.getDate();
     }
 
-    // Day letters: M,T,W,R,F,S,U
     const letterDays = s.match(/[mtwrfsu]/g);
-    if (letterDays && letterDays.some(letter => DAY_LETTER_MAP[letter] === today)) return true;
+    if (letterDays && letterDays.some(letter => DAY_LETTERS[letter] === today)) return true;
 
-    // Full names or ranges e.g., "mon", "mon-fri"
-    // Normalize tokens split by commas/spaces
     const tokens = s.split(/[\s,]+/).filter(Boolean);
     if (tokens.length) {
-      const dayIdx = (tok) => DAY_MAP_FULL[tok];
+      const dayIdx = (tok) => DAY_MAP[tok];
       for (const tok of tokens) {
         if (tok.includes('-')) {
           const [a, b] = tok.split('-');
@@ -374,12 +322,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         }
       }
     }
-    return false;
-  }
 
-  async getTodayQuests() {
-    const all = await this.parseHabitsFile();
-    return all.filter(q => q.id && this.isScheduledToday(q.schedule) && !q.isCompleted);
+    return false;
   }
 
   isCompletedToday(questId) {
@@ -393,31 +337,37 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async startQuest(questId) {
     const s = this.questLog.timerState;
-    if (s.activeQuestId && s.activeQuestId !== questId) await this.pauseQuest(s.activeQuestId);
+    if (s.activeQuestId && s.activeQuestId !== questId) {
+      await this.pauseQuest(s.activeQuestId);
+    }
+
     s.activeQuestId = questId;
     s.startTime = Date.now();
     await this.saveQuestLog();
-    this.refreshTodayView();
+    this.refreshView();
   }
 
   async pauseQuest(questId) {
     const s = this.questLog.timerState;
     if (s.activeQuestId !== questId) return;
+
     const elapsed = this.getActiveElapsedMinutes();
     s.pausedSessions[questId] = (s.pausedSessions[questId] || 0) + elapsed;
     s.activeQuestId = null;
     s.startTime = null;
+
     await this.saveQuestLog();
-    this.refreshTodayView();
+    this.refreshView();
   }
 
-  async resumeQuest(questId) { await this.startQuest(questId); }
+  async resumeQuest(questId) {
+    await this.startQuest(questId);
+  }
 
   getActiveElapsedMinutes() {
     const s = this.questLog.timerState;
     if (!s.activeQuestId || !s.startTime) return 0;
-    const ms = Date.now() - s.startTime;
-    return ms / 1000 / 60;
+    return (Date.now() - s.startTime) / 1000 / 60;
   }
 
   getTotalMinutes(questId) {
@@ -429,11 +379,25 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async autoPauseActiveQuest() {
     const s = this.questLog.timerState;
     if (!s.activeQuestId) return;
+
     const elapsed = this.getActiveElapsedMinutes();
     s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + elapsed;
     s.activeQuestId = null;
     s.startTime = null;
+
     await this.saveQuestLog();
+  }
+
+  async handleTimerStateOnLoad() {
+    const s = this.questLog.timerState;
+    if (s.activeQuestId && s.startTime) {
+      const elapsed = (Date.now() - s.startTime) / 1000 / 60;
+      s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + elapsed;
+      s.activeQuestId = null;
+      s.startTime = null;
+      await this.saveQuestLog();
+      console.log(`Timer recovered: +${elapsed.toFixed(1)}m`);
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -455,17 +419,44 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       xpEarned: xp
     });
 
-    // Clear timer state
     const s = this.questLog.timerState;
-    if (s.activeQuestId === questId) { s.activeQuestId = null; s.startTime = null; }
+    if (s.activeQuestId === questId) {
+      s.activeQuestId = null;
+      s.startTime = null;
+    }
     delete s.pausedSessions[questId];
 
     await this.saveQuestLog();
 
-    await this.markQuestInFileById(questId, true);
-
     new Notice(`✓ ${quest.name} completed! +${xp} XP`);
-    this.refreshTodayView();
+    this.refreshView();
+  }
+
+  async uncompleteQuest(questId) {
+    const today = new Date().toISOString().split('T')[0];
+    const completion = this.questLog.completions.find(c => c.questId === questId && c.date === today);
+
+    if (!completion) return;
+
+    this.questLog.player.xp -= completion.xpEarned;
+
+    while (this.questLog.player.xp < 0 && this.questLog.player.level > 1) {
+      this.questLog.player.level--;
+      this.questLog.player.xp += this.getXPForNextLevel(this.questLog.player.level);
+    }
+    if (this.questLog.player.xp < 0) this.questLog.player.xp = 0;
+
+    this.questLog.completions = this.questLog.completions.filter(
+      c => !(c.questId === questId && c.date === today)
+    );
+
+    await this.saveQuestLog();
+
+    const quest = this.questLog.quests.find(q => q.id === questId);
+    const name = quest ? quest.name : 'Quest';
+    new Notice(`⟲ ${name} uncompleted. -${completion.xpEarned} XP`);
+
+    this.refreshView();
   }
 
   calculateXP(estimateMinutes, actualMinutes) {
@@ -479,6 +470,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   awardXP(xp) {
     const p = this.questLog.player;
     p.xp += xp;
+
     while (p.xp >= this.getXPForNextLevel(p.level)) {
       const need = this.getXPForNextLevel(p.level);
       p.xp -= need;
@@ -486,7 +478,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       p.level += 1;
       const newRank = getRankForLevel(p.level);
 
-      // Check if rank changed
       if (oldRank.name !== newRank.name) {
         new Notice(`🎊 RANK UP! You are now ${newRank.icon} ${newRank.name.toUpperCase()} (Level ${p.level})`, 6000);
       } else {
@@ -501,137 +492,33 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   // --------------------------------------------------------------------------
-  // Bidirectional sync
+  // View Management
   // --------------------------------------------------------------------------
 
-  async markQuestInFileById(questId, completed) {
-    const content = await this.readHabitsFile();
-    if (content == null) return;
-
-    const lines = content.split('\n');
-    const idx = lines.findIndex(l => l.includes(`#qid(${questId})`));
-    if (idx === -1) return;
-
-    const line = lines[idx];
-    const checkbox = completed ? '[x]' : '[ ]';
-    const newLine = line.replace(/^(\s*-\s)\[([ xX])\]/, `$1${checkbox}`);
-    if (newLine === line) return;
-
-    lines[idx] = newLine;
-    await this.writeHabitsFile(lines.join('\n'));
-  }
-
-  async onHabitsFileModified() {
-    const quests = await this.parseHabitsFile();
-    const today = new Date().toISOString().split('T')[0];
-
-    for (const q of quests) {
-      if (!q.id) continue;
-      if (!this.isScheduledToday(q.schedule)) continue;
-
-      const wasCompletedToday = this.isCompletedToday(q.id);
-      const isNowCompleted = q.isCompleted;
-
-      // Manual check => award
-      if (isNowCompleted && !wasCompletedToday) {
-        const totalMinutes = this.getTotalMinutes(q.id);
-        const xp = this.calculateXP(q.estimateMinutes, totalMinutes);
-
-        this.awardXP(xp);
-        this.questLog.completions.push({
-          questId: q.id,
-          date: today,
-          minutesSpent: Math.round(totalMinutes),
-          xpEarned: xp
-        });
-
-        // Clear timer state
-        const s = this.questLog.timerState;
-        if (s.activeQuestId === q.id) { s.activeQuestId = null; s.startTime = null; }
-        delete s.pausedSessions[q.id];
-
-        await this.saveQuestLog();
-        new Notice(`✓ ${q.name} completed! +${xp} XP`);
-      }
-
-      // Manual uncheck => revert
-      if (!isNowCompleted && wasCompletedToday) {
-        const c = this.questLog.completions.find(x => x.questId === q.id && x.date === today);
-        if (c) {
-          this.questLog.player.xp -= c.xpEarned;
-
-          // Level down if needed
-          while (this.questLog.player.xp < 0 && this.questLog.player.level > 1) {
-            this.questLog.player.level -= 1;
-            this.questLog.player.xp += this.getXPForNextLevel(this.questLog.player.level);
-          }
-          if (this.questLog.player.xp < 0) this.questLog.player.xp = 0;
-
-          this.questLog.completions = this.questLog.completions.filter(x => !(x.questId === q.id && x.date === today));
-          await this.saveQuestLog();
-          new Notice(`⟲ ${q.name} uncompleted. -${c.xpEarned} XP`);
-        }
-      }
-    }
-
-    this.refreshTodayView();
-  }
-
-  // --------------------------------------------------------------------------
-  // View management
-  // --------------------------------------------------------------------------
-
-  async activateTodayView() {
+  async activateView() {
     const { workspace } = this.app;
-    let leaf = workspace.getLeavesOfType(VIEW_TYPE_TODAY_QUESTS)[0];
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_QUESTS)[0];
+
     if (!leaf) {
       leaf = workspace.getRightLeaf(false);
-      await leaf.setViewState({ type: VIEW_TYPE_TODAY_QUESTS, active: true });
+      await leaf.setViewState({ type: VIEW_TYPE_QUESTS, active: true });
     }
+
     workspace.revealLeaf(leaf);
   }
 
-  refreshTodayView() {
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TODAY_QUESTS);
+  refreshView() {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_QUESTS);
     for (const leaf of leaves) {
-      if (leaf.view instanceof TodayQuestsView) leaf.view.render();
+      if (leaf.view instanceof QuestView) {
+        leaf.view.render();
+      }
     }
   }
 
   // --------------------------------------------------------------------------
-  // Timer state recovery
+  // Utilities
   // --------------------------------------------------------------------------
-
-  async handleTimerStateOnLoad() {
-    const s = this.questLog.timerState;
-    if (s.activeQuestId && s.startTime) {
-      const elapsedMin = (Date.now() - s.startTime) / 1000 / 60;
-      s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + elapsedMin;
-      s.activeQuestId = null;
-      s.startTime = null;
-      await this.saveQuestLog();
-      console.log(`Timer recovered: +${elapsedMin.toFixed(1)}m`);
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // Reset & Reports
-  // --------------------------------------------------------------------------
-
-  async resetAllData() {
-    const confirmed = await this.showConfirmDialog(
-      '⚠️ Reset All Quest Data',
-      'This will clear all completions, reset level to 1, and reset XP to 0. This cannot be undone!'
-    );
-
-    if (!confirmed) return;
-
-    this.initializeQuestLog();
-    await this.saveQuestLog();
-
-    new Notice('✓ All quest data has been reset!');
-    this.refreshTodayView();
-  }
 
   showConfirmDialog(title, message) {
     return new Promise((resolve) => {
@@ -642,6 +529,29 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     });
   }
 
+  // --------------------------------------------------------------------------
+  // Reset
+  // --------------------------------------------------------------------------
+
+  async resetAllData() {
+    const confirmed = await this.showConfirmDialog(
+      '⚠️ Reset All Quest Data',
+      'This will clear all quests, completions, and reset level to 1. This cannot be undone!'
+    );
+
+    if (!confirmed) return;
+
+    this.initializeQuestLog();
+    await this.saveQuestLog();
+
+    new Notice('✓ All quest data has been reset!');
+    this.refreshView();
+  }
+
+  // --------------------------------------------------------------------------
+  // Reports
+  // --------------------------------------------------------------------------
+
   async generateReport() {
     new Notice('📊 Generating quest report...');
 
@@ -649,12 +559,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       const stats = await this.calculateStats();
       const reportContent = this.buildReportMarkdown(stats);
 
-      // Save to vault in same directory as HABITS.md
-      const habitsPath = this.settings.habitsFilePath;
-      const dir = habitsPath.includes('/') ? habitsPath.substring(0, habitsPath.lastIndexOf('/')) : '';
-      const reportPath = dir ? `${dir}/Quest-Report.md` : 'Quest-Report.md';
-
+      const reportPath = 'Quest-Report.md';
       const existingFile = this.app.vault.getAbstractFileByPath(reportPath);
+
       if (existingFile instanceof TFile) {
         await this.app.vault.modify(existingFile, reportContent);
       } else {
@@ -663,7 +570,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
       new Notice(`✓ Report generated: ${reportPath}`);
 
-      // Open the report
       const file = this.app.vault.getAbstractFileByPath(reportPath);
       if (file instanceof TFile) {
         const leaf = this.app.workspace.getLeaf(false);
@@ -676,21 +582,17 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async calculateStats() {
-    const { completions, player } = this.questLog;
+    const { completions, player, quests } = this.questLog;
 
-    // Parse HABITS to get quest names
     const questNames = {};
-    const allQuests = await this.parseHabitsFile();
-    allQuests.forEach(q => {
-      if (q.id) questNames[q.id] = q.name;
+    quests.forEach(q => {
+      questNames[q.id] = q.name;
     });
 
-    // Basic stats
     const totalCompleted = completions.length;
     const totalXP = completions.reduce((sum, c) => sum + (c.xpEarned || 0), 0);
     const totalMinutes = completions.reduce((sum, c) => sum + (c.minutesSpent || 0), 0);
 
-    // Group by date
     const byDate = {};
     completions.forEach(c => {
       if (!byDate[c.date]) {
@@ -701,7 +603,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       byDate[c.date].minutes += c.minutesSpent || 0;
     });
 
-    // Group by quest
     const byQuest = {};
     completions.forEach(c => {
       if (!byQuest[c.questId]) {
@@ -712,7 +613,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       byQuest[c.questId].minutes += c.minutesSpent || 0;
     });
 
-    // Last 30 days
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const last30Days = [];
@@ -728,7 +628,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       });
     }
 
-    // Top quests
     const topQuests = Object.entries(byQuest)
       .sort((a, b) => b[1].count - a[1].count)
       .slice(0, 10)
@@ -744,8 +643,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       totalXP,
       totalMinutes,
       last30Days,
-      topQuests,
-      questNames
+      topQuests
     };
   }
 
@@ -772,39 +670,16 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 ---
 
-## 📈 Progress Charts
-
-### Quests Completed (Last 30 Days)
-
-<div style="margin: 20px 0;">
-  <canvas id="questsChart" width="800" height="400"></canvas>
-</div>
-
-### XP Earned (Last 30 Days)
-
-<div style="margin: 20px 0;">
-  <canvas id="xpChart" width="800" height="400"></canvas>
-</div>
-
-### Time Spent (Last 30 Days)
-
-<div style="margin: 20px 0;">
-  <canvas id="timeChart" width="800" height="400"></canvas>
-</div>
-
----
-
 ## 🎯 Top Quests
 
 | Rank | Quest Name | Completions | Total XP | Total Time |
 |------|-----------|-------------|----------|------------|
- ${stats.topQuests.map((q, idx) => {
+${stats.topQuests.map((q, idx) => {
       const h = Math.floor(q.minutes / 60);
       const m = Math.floor(q.minutes % 60);
       return `| ${idx + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${h}h ${m}m |`;
     }).join('\n')}
-
- ${stats.topQuests.length === 0 ? '| - | No quests completed yet | - | - | - |' : ''}
+${stats.topQuests.length === 0 ? '| - | No quests completed yet | - | - | - |' : ''}
 
 ---
 
@@ -812,138 +687,21 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 | Date | Quests | XP Earned | Time Spent |
 |------|--------|-----------|------------|
- ${stats.last30Days.slice().reverse().map(d => {
+${stats.last30Days.slice().reverse().map(d => {
       const h = Math.floor(d.minutes / 60);
       const m = Math.floor(d.minutes % 60);
       const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
       return `| ${d.date} | ${d.count} | ${d.xp} XP | ${timeStr} |`;
     }).join('\n')}
-
----
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-setTimeout(() => {
-  if (typeof Chart === 'undefined') return;
-
-  const chartConfig = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { labels: { color: '#e0e0e8', font: { size: 14 } } },
-      tooltip: {
-        backgroundColor: 'rgba(30, 30, 40, 0.9)',
-        borderWidth: 1
-      }
-    },
-    scales: {
-      y: { 
-        beginAtZero: true,
-        ticks: { color: '#808090' },
-        grid: { color: '#2a2a38' }
-      },
-      x: { 
-        ticks: { color: '#808090', maxRotation: 45 },
-        grid: { color: '#2a2a38' }
-      }
-    }
-  };
-
-  // Quests Chart
-  const questsCtx = document.getElementById('questsChart');
-  if (questsCtx) {
-    new Chart(questsCtx, {
-      type: 'line',
-      data: {
-        labels: [${stats.last30Days.map(d => `"${d.date.slice(5)}"`).join(', ')}],
-        datasets: [{
-          label: 'Quests Completed',
-          data: [${stats.last30Days.map(d => d.count).join(', ')}],
-          borderColor: 'rgb(0, 229, 255)',
-          backgroundColor: 'rgba(0, 229, 255, 0.1)',
-          tension: 0.4,
-          fill: true
-        }]
-      },
-      options: chartConfig
-    });
-  }
-
-  // XP Chart
-  const xpCtx = document.getElementById('xpChart');
-  if (xpCtx) {
-    new Chart(xpCtx, {
-      type: 'bar',
-      data: {
-        labels: [${stats.last30Days.map(d => `"${d.date.slice(5)}"`).join(', ')}],
-        datasets: [{
-          label: 'XP Earned',
-          data: [${stats.last30Days.map(d => d.xp).join(', ')}],
-          backgroundColor: 'rgba(183, 148, 246, 0.6)'
-        }]
-      },
-      options: chartConfig
-    });
-  }
-
-  // Time Chart
-  const timeCtx = document.getElementById('timeChart');
-  if (timeCtx) {
-    new Chart(timeCtx, {
-      type: 'line',
-      data: {
-        labels: [${stats.last30Days.map(d => `"${d.date.slice(5)}"`).join(', ')}],
-        datasets: [{
-          label: 'Minutes Spent',
-          data: [${stats.last30Days.map(d => d.minutes).join(', ')}],
-          borderColor: 'rgb(104, 211, 145)',
-          backgroundColor: 'rgba(104, 211, 145, 0.1)',
-          tension: 0.4,
-          fill: true
-        }]
-      },
-      options: chartConfig
-    });
-  }
-}, 500);
-</script>
-
-<style>
-canvas {
-  background: #1e1e28 !important;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #2a2a38;
-  max-width: 100%;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 20px 0;
-}
-th, td {
-  padding: 12px;
-  text-align: left;
-  border-bottom: 1px solid #2a2a38;
-}
-th {
-  background: #1e1e28;
-  color: #00e5ff;
-  font-weight: 600;
-}
-tr:hover {
-  background: #161620;
-}
-</style>
 `;
   }
 };
 
 // ============================================================================
-// TODAY VIEW (incremental timer updates; no full rerender every second)
+// QUEST VIEW
 // ============================================================================
 
-class TodayQuestsView extends ItemView {
+class QuestView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -951,9 +709,17 @@ class TodayQuestsView extends ItemView {
     this.domIndex = new Map();
   }
 
-  getViewType() { return VIEW_TYPE_TODAY_QUESTS; }
-  getDisplayText() { return "Today's Quests"; }
-  getIcon() { return 'target'; }
+  getViewType() {
+    return VIEW_TYPE_QUESTS;
+  }
+
+  getDisplayText() {
+    return "Quest Log";
+  }
+
+  getIcon() {
+    return 'target';
+  }
 
   async onOpen() {
     await super.onOpen();
@@ -978,7 +744,6 @@ class TodayQuestsView extends ItemView {
     }
   }
 
-  // Update ONLY the active quest's timer text (no full rerender)
   updateActiveTimerRow() {
     const state = this.plugin.questLog.timerState;
     const activeId = state.activeQuestId;
@@ -988,16 +753,11 @@ class TodayQuestsView extends ItemView {
     if (!entry) return;
 
     const { estimateEl, itemEl, quest } = entry;
-
     const totalMinutes = this.plugin.getTotalMinutes(activeId);
-    const isActive = true;
-    const isPaused = false;
     const isOvertime = !!(quest.estimateMinutes && totalMinutes > quest.estimateMinutes);
 
-    // Update display (countdown for estimated, count-up otherwise)
-    this.updateEstimateDisplay(estimateEl, quest, totalMinutes, isActive, isPaused, isOvertime);
+    this.updateEstimateDisplay(estimateEl, quest, totalMinutes, true, false, isOvertime);
 
-    // Keep overtime class in sync
     if (isOvertime) itemEl.addClass('quest-item--overtime');
     else itemEl.removeClass('quest-item--overtime');
   }
@@ -1006,74 +766,145 @@ class TodayQuestsView extends ItemView {
     const container = this.containerEl.children[1];
     this.domIndex.clear();
     container.empty();
+    container.addClass('quest-view-container');
 
-    const quests = await this.plugin.getTodayQuests();
     const player = this.plugin.questLog.player;
     const xpForNext = this.plugin.getXPForNextLevel(player.level);
     const xpPercent = clamp((player.xp / xpForNext) * 100, 0, 100);
-    const totalEstimate = quests.reduce((s, q) => s + (q.estimateMinutes || 0), 0);
 
     // Header
     const rank = getRankForLevel(player.level);
     const header = container.createDiv({ cls: 'quest-view-header' });
+
     const top = header.createDiv({ cls: 'quest-header-top' });
-    top.createEl('h2', { text: "Today's Quests" });
+    top.createEl('h2', { text: 'Quest Log' });
 
-    // Right side wrapper (total time + rank)
-    const rightSide = top.createDiv({ cls: 'quest-header-right' });
-    if (totalEstimate > 0) rightSide.createDiv({ cls: 'quest-total-est', text: `Total: ${formatTime(totalEstimate)}` });
-    const rankDisplay = rightSide.createDiv({ cls: 'quest-rank-display' });
-    rankDisplay.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name.toUpperCase()}</span>`;
+    const rankDisplay = top.createDiv({ cls: 'quest-rank-display' });
+    rankDisplay.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name}</span>`;
 
-    // Stats (Level inline with XP and quests)
     const stats = header.createDiv({ cls: 'quest-view-stats' });
     stats.createEl('span', { text: `Level ${player.level}` });
     stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
-    stats.createEl('span', { text: `${quests.length} quest${quests.length !== 1 ? 's' : ''}` });
 
     const xpBar = header.createDiv({ cls: 'quest-xp-bar' });
     xpBar.createDiv({ cls: 'quest-xp-fill', attr: { style: `width: ${xpPercent}%` } });
 
-    if (quests.length === 0) {
-      container.createDiv({ cls: 'quest-empty-state', text: '🎉 No quests scheduled for today, or all complete!' });
-      return;
+    // Add Quest Form
+    this.renderAddQuestSection(container);
+
+    // Today's Quests
+    const todayQuests = this.plugin.getTodayQuests();
+    if (todayQuests.length > 0) {
+      container.createDiv({ cls: 'quest-section-title', text: '📋 Today' });
+      const todayList = container.createDiv({ cls: 'quest-list' });
+      todayList.dataset.droppable = 'today';
+      this.setupDragDrop(todayList, todayQuests);
+
+      for (const q of todayQuests) {
+        this.renderQuestItem(todayList, q, { draggable: true, locked: false });
+      }
     }
 
-    // Group by category
-    const categories = new Map();
-    for (const q of quests) {
-      const cat = q.category || 'Uncategorized';
-      if (!categories.has(cat)) categories.set(cat, []);
-      categories.get(cat).push(q);
+    // Other Days
+    const otherQuests = this.plugin.getOtherQuests();
+    if (otherQuests.length > 0) {
+      container.createDiv({ cls: 'quest-section-title quest-section-other', text: '📅 Other Days' });
+      const otherList = container.createDiv({ cls: 'quest-list quest-list--dimmed' });
+
+      for (const q of otherQuests) {
+        this.renderQuestItem(otherList, q, { draggable: false, locked: true });
+      }
     }
 
-    for (const [cat, qs] of categories.entries()) {
-      const state = this.plugin.questLog.timerState;
+    // Completed Today
+    this.renderCompletedSection(container);
 
-      const active = qs.filter(q => this.hasAnyTime(q.id));
-      const inactive = qs.filter(q => !this.hasAnyTime(q.id));
-      const ordered = [...active, ...inactive];
+    // Footer
+    const footer = container.createDiv({ cls: 'quest-footer' });
+    const reportBtn = footer.createEl('button', { text: '📊 Generate Report', cls: 'btn-primary' });
+    reportBtn.addEventListener('click', () => this.plugin.generateReport());
+  }
 
-      container.createDiv({ cls: 'quest-section-title', text: cat });
-      const list = container.createDiv({ cls: 'quest-list' });
+  renderAddQuestSection(container) {
+    const section = container.createDiv({ cls: 'quest-add-section' });
 
-      for (const q of ordered) this.renderQuestItem(list, q);
-    }
+    const toggleBtn = section.createDiv({ cls: 'quest-add-toggle' });
+    toggleBtn.innerHTML = '<span class="add-icon">➕</span> <span>Add New Quest</span>';
 
-    // Add Generate Report button at bottom (reusing existing btn-icon styles)
-    const reportContainer = container.createDiv({ cls: 'quest-footer' });
-    const reportBtn = reportContainer.createEl('button', { text: '📊 Generate Report' });
-    reportBtn.addClass('btn-icon');
-    reportBtn.addClass('primary');
-    reportBtn.style.width = 'auto';
-    reportBtn.style.padding = '12px 24px';
-    reportBtn.style.fontSize = '0.95em';
-    reportBtn.addEventListener('click', async () => {
-      await this.plugin.generateReport();
+    const form = section.createDiv({ cls: 'quest-add-form hidden' });
+
+    const nameInput = form.createEl('input', {
+      type: 'text',
+      placeholder: 'Quest name...',
+      cls: 'quest-input'
+    });
+
+    const row1 = form.createDiv({ cls: 'quest-form-row' });
+
+    const categoryInput = row1.createEl('input', {
+      type: 'text',
+      placeholder: 'Category',
+      cls: 'quest-input quest-input--small'
+    });
+
+    const scheduleSelect = row1.createEl('select', { cls: 'quest-input quest-input--small' });
+    [
+      { value: 'daily', label: 'Daily' },
+      { value: 'weekdays', label: 'Weekdays' },
+      { value: 'weekends', label: 'Weekends' },
+      { value: 'M,W,F', label: 'Mon/Wed/Fri' },
+      { value: 'T,R', label: 'Tue/Thu' }
+    ].forEach(opt => {
+      scheduleSelect.createEl('option', { value: opt.value, text: opt.label });
+    });
+
+    const row2 = form.createDiv({ cls: 'quest-form-row' });
+
+    const estimateInput = row2.createEl('input', {
+      type: 'number',
+      placeholder: 'Minutes (optional)',
+      cls: 'quest-input quest-input--small'
+    });
+
+    const addBtn = row2.createEl('button', { text: '+ Add', cls: 'btn-primary' });
+
+    toggleBtn.addEventListener('click', () => {
+      form.toggleClass('hidden', !form.hasClass('hidden'));
+      if (!form.hasClass('hidden')) {
+        setTimeout(() => nameInput.focus(), 50);
+      }
+    });
+
+    const submitQuest = async () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        new Notice('❌ Quest name is required');
+        return;
+      }
+
+      await this.plugin.createQuest({
+        name,
+        category: categoryInput.value.trim() || 'Uncategorized',
+        schedule: scheduleSelect.value,
+        estimateMinutes: estimateInput.value ? parseInt(estimateInput.value) : null
+      });
+
+      nameInput.value = '';
+      categoryInput.value = '';
+      estimateInput.value = '';
+      scheduleSelect.value = 'daily';
+      form.addClass('hidden');
+    };
+
+    addBtn.addEventListener('click', submitQuest);
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitQuest();
     });
   }
 
-  renderQuestItem(container, quest) {
+  renderQuestItem(container, quest, options = {}) {
+    const { draggable, locked } = options;
+
     const state = this.plugin.questLog.timerState;
     const isActive = state.activeQuestId === quest.id;
     const hasTime = this.hasAnyTime(quest.id);
@@ -1082,47 +913,81 @@ class TodayQuestsView extends ItemView {
     const isOvertime = !!(quest.estimateMinutes && totalMinutes > quest.estimateMinutes);
 
     const item = container.createDiv({ cls: 'quest-item' });
+    item.dataset.questId = quest.id;
+
     if (isActive) item.addClass('quest-item--active');
     if (isPaused) item.addClass('quest-item--paused');
     if (isOvertime) item.addClass('quest-item--overtime');
+    if (locked) item.addClass('quest-item--locked');
 
-    // Checkbox
+    if (draggable) {
+      const dragHandle = item.createDiv({ cls: 'quest-drag-handle', title: 'Drag to reorder' });
+      dragHandle.innerHTML = '⋮⋮';
+      item.draggable = true;
+    }
+
     const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox' });
     checkbox.checked = false;
-    checkbox.addEventListener('change', async () => {
-      if (checkbox.checked) await this.plugin.completeQuest(quest);
-    });
+    checkbox.disabled = locked;
 
-    // Info
+    if (!locked) {
+      checkbox.addEventListener('change', async () => {
+        if (checkbox.checked) {
+          await this.plugin.completeQuest(quest);
+        }
+      });
+    }
+
     const info = item.createDiv({ cls: 'quest-info' });
-    info.createDiv({ cls: 'quest-name', text: quest.name });
 
-    // Estimate / timer display
+    const nameRow = info.createDiv({ cls: 'quest-name-row' });
+    nameRow.createDiv({ cls: 'quest-name', text: quest.name });
+
+    const meta = info.createDiv({ cls: 'quest-meta' });
+    meta.innerHTML = `<span>${quest.category}</span> <span>•</span> <span>${this.formatSchedule(quest.schedule)}</span>`;
+
     const estimateEl = info.createDiv({ cls: 'quest-estimate' });
     this.updateEstimateDisplay(estimateEl, quest, totalMinutes, isActive, isPaused, isOvertime);
 
-    // Actions
     const right = item.createDiv({ cls: 'quest-right' });
-    if (!isActive && !isPaused) {
-      const startBtn = this.createIconButton('play', 'Start quest');
-      startBtn.addClass('primary');
-      startBtn.addEventListener('click', async () => await this.plugin.startQuest(quest.id));
-      right.appendChild(startBtn);
-    }
-    if (isActive) {
-      const pauseBtn = this.createIconButton('pause', 'Pause quest');
-      pauseBtn.addClass('accent');
-      pauseBtn.addEventListener('click', async () => await this.plugin.pauseQuest(quest.id));
-      right.appendChild(pauseBtn);
-    }
-    if (isPaused && !isActive) {
-      const resumeBtn = this.createIconButton('play', 'Resume quest');
-      resumeBtn.addClass('primary');
-      resumeBtn.addEventListener('click', async () => await this.plugin.resumeQuest(quest.id));
-      right.appendChild(resumeBtn);
+
+    if (!locked) {
+      if (!isActive && !isPaused) {
+        const startBtn = this.createIconButton('play', 'Start quest');
+        startBtn.addClass('primary');
+        startBtn.addEventListener('click', async () => await this.plugin.startQuest(quest.id));
+        right.appendChild(startBtn);
+      }
+
+      if (isActive) {
+        const pauseBtn = this.createIconButton('pause', 'Pause quest');
+        pauseBtn.addClass('accent');
+        pauseBtn.addEventListener('click', async () => await this.plugin.pauseQuest(quest.id));
+        right.appendChild(pauseBtn);
+      }
+
+      if (isPaused && !isActive) {
+        const resumeBtn = this.createIconButton('play', 'Resume quest');
+        resumeBtn.addClass('primary');
+        resumeBtn.addEventListener('click', async () => await this.plugin.resumeQuest(quest.id));
+        right.appendChild(resumeBtn);
+      }
     }
 
-    // Index DOM nodes for fast live updates
+    const editBtn = this.createIconButton('edit', 'Edit quest');
+    editBtn.addEventListener('click', () => this.openEditModal(quest));
+    right.appendChild(editBtn);
+
+    const deleteBtn = this.createIconButton('trash', 'Delete quest');
+    deleteBtn.addClass('danger');
+    deleteBtn.addEventListener('click', async () => await this.plugin.deleteQuest(quest.id));
+    right.appendChild(deleteBtn);
+
+    if (locked) {
+      const lockOverlay = item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' });
+      lockOverlay.innerHTML = '🔒';
+    }
+
     this.domIndex.set(quest.id, { estimateEl, itemEl: item, quest });
   }
 
@@ -1133,7 +998,7 @@ class TodayQuestsView extends ItemView {
     const hasEstimate = quest.estimateMinutes != null && quest.estimateMinutes > 0;
 
     if (hasEstimate) {
-      const remaining = quest.estimateMinutes - totalMinutes; // countdown
+      const remaining = quest.estimateMinutes - totalMinutes;
       const absText = formatTime(Math.abs(remaining));
       const prefix = isActive ? '⏱ ' : (isPaused ? '⏸ ' : '');
       let text;
@@ -1152,15 +1017,25 @@ class TodayQuestsView extends ItemView {
       return;
     }
 
-    // No estimate: count-up when there's time; otherwise show nothing
     if (totalMinutes > 0) {
       const prefix = isActive ? '⏱ ' : (isPaused ? '⏸ ' : '');
       if (isActive) div.addClass('quest-estimate--running');
       if (isPaused) div.addClass('quest-estimate--paused');
       div.setText(`${prefix}${formatTime(totalMinutes)}`);
     } else {
-      div.setText(''); // no estimate + not started => empty
+      div.setText('');
     }
+  }
+
+  formatSchedule(schedule) {
+    const map = {
+      'daily': 'Every day',
+      'weekdays': 'Mon-Fri',
+      'weekends': 'Sat-Sun',
+      'M,W,F': 'Mon/Wed/Fri',
+      'T,R': 'Tue/Thu'
+    };
+    return map[schedule] || schedule;
   }
 
   hasAnyTime(questId) {
@@ -1168,20 +1043,204 @@ class TodayQuestsView extends ItemView {
     return s.activeQuestId === questId || (s.pausedSessions[questId] || 0) > 0;
   }
 
+  setupDragDrop(container, quests) {
+    let draggedElement = null;
+
+    container.addEventListener('dragstart', (e) => {
+      if (!e.target.classList.contains('quest-item')) return;
+      if (!e.target.draggable) return;
+
+      draggedElement = e.target;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', e.target.dataset.questId);
+
+      setTimeout(() => draggedElement.addClass('dragging'), 0);
+    });
+
+    container.addEventListener('dragend', async (e) => {
+      if (draggedElement) {
+        draggedElement.removeClass('dragging');
+
+        const items = Array.from(container.querySelectorAll('.quest-item'));
+        const newOrder = items.map(el => el.dataset.questId);
+        await this.plugin.reorderQuests(newOrder);
+
+        draggedElement = null;
+      }
+    });
+
+    container.addEventListener('dragover', (e) => {
+      e.preventDefault();
+
+      const afterElement = this.getDragAfterElement(container, e.clientY);
+      const dragging = container.querySelector('.dragging');
+
+      if (!dragging) return;
+
+      if (afterElement == null) {
+        container.appendChild(dragging);
+      } else {
+        container.insertBefore(dragging, afterElement);
+      }
+    });
+  }
+
+  getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.quest-item:not(.dragging)')];
+
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+
+      if (offset < 0 && offset > closest.offset) {
+        return { offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  renderCompletedSection(container) {
+    const today = new Date().toISOString().split('T')[0];
+    const completedToday = this.plugin.questLog.completions
+      .filter(c => c.date === today)
+      .reverse();
+
+    if (completedToday.length === 0) return;
+
+    const section = container.createDiv({ cls: 'quest-completed-section' });
+
+    const header = section.createDiv({ cls: 'quest-section-title quest-section-completed' });
+    header.innerHTML = `✅ Completed Today (${completedToday.length})`;
+
+    const list = section.createDiv({ cls: 'quest-completed-list' });
+
+    for (const completion of completedToday) {
+      const quest = this.plugin.questLog.quests.find(q => q.id === completion.questId);
+      if (!quest) continue;
+
+      const item = list.createDiv({ cls: 'quest-completed-item' });
+
+      const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox' });
+      checkbox.checked = true;
+      checkbox.addEventListener('change', async () => {
+        if (!checkbox.checked) {
+          await this.plugin.uncompleteQuest(quest.id);
+        }
+      });
+
+      const info = item.createDiv({ cls: 'quest-completed-info' });
+      info.createDiv({ cls: 'quest-completed-name', text: quest.name });
+
+      const meta = info.createDiv({ cls: 'quest-completed-meta' });
+      meta.innerHTML = `<span>+${completion.xpEarned} XP</span> <span>•</span> <span>${formatTime(completion.minutesSpent)}</span>`;
+    }
+  }
+
+  openEditModal(quest) {
+    const modal = new EditQuestModal(this.app, quest, async (updated) => {
+      await this.plugin.updateQuest(quest.id, updated);
+    });
+    modal.open();
+  }
+
   createIconButton(icon, title) {
     const btn = document.createElement('button');
     btn.className = 'btn-icon';
     btn.title = title;
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      ${icon === 'play' ? '<path d="M8 5v14l11-7z" fill="currentColor"/>' :
-        icon === 'pause' ? '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>' : ''}
-    </svg>`;
+
+    const svgs = {
+      play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
+      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>',
+      edit: '<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>',
+      trash: '<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>'
+    };
+
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
     return btn;
   }
 }
 
 // ============================================================================
-// CONFIRMATION MODAL
+// EDIT QUEST MODAL
+// ============================================================================
+
+class EditQuestModal extends Modal {
+  constructor(app, quest, onSave) {
+    super(app);
+    this.quest = quest;
+    this.onSave = onSave;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('quest-edit-modal');
+
+    contentEl.createEl('h2', { text: 'Edit Quest' });
+
+    const nameLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Name' });
+    const nameInput = contentEl.createEl('input', {
+      type: 'text',
+      value: this.quest.name,
+      cls: 'quest-input'
+    });
+
+    const catLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Category' });
+    const catInput = contentEl.createEl('input', {
+      type: 'text',
+      value: this.quest.category,
+      cls: 'quest-input'
+    });
+
+    const schedLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Schedule' });
+    const schedInput = contentEl.createEl('input', {
+      type: 'text',
+      value: this.quest.schedule,
+      cls: 'quest-input',
+      placeholder: 'daily, weekdays, M,W,F, etc.'
+    });
+
+    const estLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Estimate (minutes)' });
+    const estInput = contentEl.createEl('input', {
+      type: 'number',
+      value: this.quest.estimateMinutes || '',
+      cls: 'quest-input',
+      placeholder: 'Optional'
+    });
+
+    const btnRow = contentEl.createDiv({ cls: 'modal-button-container' });
+
+    const cancelBtn = btnRow.createEl('button', { text: 'Cancel' });
+    cancelBtn.addEventListener('click', () => this.close());
+
+    const saveBtn = btnRow.createEl('button', { text: 'Save Changes', cls: 'btn-primary' });
+    saveBtn.addEventListener('click', async () => {
+      const updated = {
+        name: nameInput.value.trim(),
+        category: catInput.value.trim() || 'Uncategorized',
+        schedule: schedInput.value.trim() || 'daily',
+        estimateMinutes: estInput.value ? parseInt(estInput.value) : null
+      };
+
+      if (!updated.name) {
+        new Notice('❌ Quest name cannot be empty');
+        return;
+      }
+
+      await this.onSave(updated);
+      this.close();
+    });
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+// ============================================================================
+// CONFIRM MODAL
 // ============================================================================
 
 class ConfirmModal extends Modal {
@@ -1207,9 +1266,7 @@ class ConfirmModal extends Modal {
       this.onConfirm(false);
     });
 
-    const confirmBtn = btnContainer.createEl('button', { text: 'Confirm Reset' });
-    confirmBtn.style.background = '#fc8181';
-    confirmBtn.style.color = 'white';
+    const confirmBtn = btnContainer.createEl('button', { text: 'Confirm', cls: 'btn-danger' });
     confirmBtn.addEventListener('click', () => {
       this.close();
       this.onConfirm(true);
@@ -1226,8 +1283,11 @@ class ConfirmModal extends Modal {
 // SETTINGS TAB
 // ============================================================================
 
-class DailyQuestLogSettingTab extends PluginSettingTab {
-  constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
+class QuestLogSettingTab extends PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
 
   display() {
     const { containerEl } = this;
@@ -1235,57 +1295,84 @@ class DailyQuestLogSettingTab extends PluginSettingTab {
     containerEl.createEl('h2', { text: 'Daily Quest Log Settings' });
 
     new Setting(containerEl)
-      .setName('HABITS file path')
-      .setDesc('Path to your quest source file (default: HABITS.md)')
-      .addText(t => t.setPlaceholder('HABITS.md')
-        .setValue(this.plugin.settings.habitsFilePath)
-        .onChange(async v => { this.plugin.settings.habitsFilePath = v || HABITS_FILE_DEFAULT; await this.plugin.saveSettings(); }));
-
-    new Setting(containerEl)
       .setName('Quest log path')
-      .setDesc('Path to store completions and player data (default: QuestLog.json)')
-      .addText(t => t.setPlaceholder('QuestLog.json')
+      .setDesc('Path to store all quest data (default: QuestLog.json)')
+      .addText(t => t
+        .setPlaceholder('QuestLog.json')
         .setValue(this.plugin.settings.questLogPath)
-        .onChange(async v => { this.plugin.settings.questLogPath = v || QUEST_LOG_FILE_DEFAULT; await this.plugin.saveSettings(); }));
+        .onChange(async v => {
+          this.plugin.settings.questLogPath = v || QUEST_LOG_FILE;
+          await this.plugin.saveSettings();
+        }));
 
     containerEl.createEl('h3', { text: 'XP & Leveling' });
 
     new Setting(containerEl)
       .setName('XP per minute')
       .setDesc('XP earned per minute when quest has an estimate')
-      .addText(t => t.setPlaceholder('1')
+      .addText(t => t
+        .setPlaceholder('1')
         .setValue(String(this.plugin.settings.xpPerMinute))
-        .onChange(async v => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.xpPerMinute = n; await this.plugin.saveSettings(); } }));
+        .onChange(async v => {
+          const n = parseFloat(v);
+          if (!isNaN(n) && n > 0) {
+            this.plugin.settings.xpPerMinute = n;
+            await this.plugin.saveSettings();
+          }
+        }));
 
     new Setting(containerEl)
       .setName('Flat XP (no estimate)')
       .setDesc('XP earned when quest has no time estimate')
-      .addText(t => t.setPlaceholder('10')
+      .addText(t => t
+        .setPlaceholder('10')
         .setValue(String(this.plugin.settings.flatXp))
-        .onChange(async v => { const n = parseInt(v, 10); if (!isNaN(n) && n > 0) { this.plugin.settings.flatXp = n; await this.plugin.saveSettings(); } }));
+        .onChange(async v => {
+          const n = parseInt(v, 10);
+          if (!isNaN(n) && n > 0) {
+            this.plugin.settings.flatXp = n;
+            await this.plugin.saveSettings();
+          }
+        }));
 
     new Setting(containerEl)
       .setName('Leveling base')
       .setDesc('Base XP for leveling formula')
-      .addText(t => t.setPlaceholder('100')
+      .addText(t => t
+        .setPlaceholder('100')
         .setValue(String(this.plugin.settings.levelingBase))
-        .onChange(async v => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingBase = n; await this.plugin.saveSettings(); } }));
+        .onChange(async v => {
+          const n = parseFloat(v);
+          if (!isNaN(n) && n > 0) {
+            this.plugin.settings.levelingBase = n;
+            await this.plugin.saveSettings();
+          }
+        }));
 
     new Setting(containerEl)
       .setName('Leveling exponent')
       .setDesc('Exponent for leveling formula (higher = steeper curve)')
-      .addText(t => t.setPlaceholder('1.5')
+      .addText(t => t
+        .setPlaceholder('1.5')
         .setValue(String(this.plugin.settings.levelingExponent))
-        .onChange(async v => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingExponent = n; await this.plugin.saveSettings(); } }));
+        .onChange(async v => {
+          const n = parseFloat(v);
+          if (!isNaN(n) && n > 0) {
+            this.plugin.settings.levelingExponent = n;
+            await this.plugin.saveSettings();
+          }
+        }));
 
-    containerEl.createEl('p', { text: 'XP for next level = round(base × level^exponent)', cls: 'setting-item-description' });
+    containerEl.createEl('p', {
+      text: 'XP for next level = round(base × level^exponent)',
+      cls: 'setting-item-description'
+    });
 
-    // Danger Zone
     containerEl.createEl('h3', { text: '⚠️ Danger Zone' });
 
     new Setting(containerEl)
       .setName('Reset All Data')
-      .setDesc('Permanently delete all quest completions, reset level and XP. This cannot be undone!')
+      .setDesc('Permanently delete all quests, completions, and reset level/XP. This cannot be undone!')
       .addButton(btn => btn
         .setButtonText('Reset All Data')
         .setWarning()

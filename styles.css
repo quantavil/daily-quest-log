@@ -15,19 +15,25 @@
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
-.daily-quest-log-today-view {
+/* ============================================================================
+   CONTAINER
+   ============================================================================ */
+
+.quest-view-container {
   padding: 32px;
   height: 100%;
   overflow-y: auto;
-  background:
-    radial-gradient(ellipse at top, rgba(183, 148, 246, .04), transparent),
+  background: radial-gradient(ellipse at top, rgba(183, 148, 246, .04), transparent),
     radial-gradient(ellipse at bottom right, rgba(0, 229, 255, .02), transparent),
     var(--bg);
   color: var(--text);
   font-family: 'Inter', -apple-system, sans-serif;
 }
 
-/* Header */
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
 .quest-view-header {
   margin-bottom: 32px;
   padding: 24px;
@@ -46,6 +52,32 @@
   background: linear-gradient(135deg, var(--accent), var(--cyan));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.quest-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.quest-rank-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.5em;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+
+.quest-rank-display .rank-icon {
+  font-size: 1.2em;
+  filter: drop-shadow(0 0 8px currentColor);
+}
+
+.quest-rank-display .rank-name {
+  text-shadow: 0 0 20px currentColor;
 }
 
 .quest-view-stats {
@@ -73,20 +105,6 @@
   transform: translateY(-2px);
 }
 
-.quest-header-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 16px;
-}
-
-.quest-total-est {
-  font-size: .85em;
-  color: var(--text-muted);
-  font-family: 'SF Mono', monospace;
-}
-
-/* XP Bar */
 .quest-xp-bar {
   width: 100%;
   height: 10px;
@@ -105,7 +123,81 @@
   box-shadow: var(--glow) rgba(0, 229, 255, .5);
 }
 
-/* Sections */
+/* ============================================================================
+   ADD QUEST SECTION
+   ============================================================================ */
+
+.quest-add-section {
+  margin: 24px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.quest-add-toggle {
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: .2s;
+  background: rgba(0, 229, 255, .03);
+}
+
+.quest-add-toggle:hover {
+  background: rgba(0, 229, 255, .08);
+}
+
+.quest-add-toggle .add-icon {
+  font-size: 1.2em;
+}
+
+.quest-add-form {
+  padding: 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quest-add-form.hidden {
+  display: none;
+}
+
+.quest-input {
+  padding: 10px 14px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: .95em;
+  transition: .2s;
+  font-family: inherit;
+}
+
+.quest-input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0, 229, 255, .1);
+}
+
+.quest-input--small {
+  flex: 1;
+  min-width: 0;
+}
+
+.quest-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* ============================================================================
+   SECTIONS
+   ============================================================================ */
+
 .quest-section-title {
   margin: 32px 0 16px;
   padding-left: 12px;
@@ -118,13 +210,32 @@
   border-left: 2px solid var(--cyan);
 }
 
+.quest-section-other {
+  color: var(--text-muted);
+  border-left-color: var(--text-muted);
+  text-shadow: none;
+}
+
+.quest-section-completed {
+  color: var(--green);
+  border-left-color: var(--green);
+  text-shadow: var(--glow) rgba(104, 211, 145, .3);
+}
+
 .quest-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-/* Items */
+.quest-list--dimmed .quest-item {
+  opacity: 0.5;
+}
+
+/* ============================================================================
+   QUEST ITEMS
+   ============================================================================ */
+
 .quest-item {
   display: flex;
   align-items: center;
@@ -161,6 +272,69 @@
   box-shadow: var(--glow) rgba(0, 229, 255, .15), var(--shadow);
 }
 
+.quest-item--active {
+  background: rgba(0, 229, 255, .06);
+  border-color: var(--cyan);
+  transform: translateX(6px);
+  box-shadow: var(--glow) rgba(0, 229, 255, .2), var(--shadow);
+}
+
+.quest-item--active::before {
+  transform: scaleY(1);
+  background: var(--cyan);
+}
+
+.quest-item--paused {
+  border-color: var(--purple);
+  box-shadow: var(--glow) rgba(183, 148, 246, .2);
+}
+
+.quest-item--paused::before {
+  background: var(--purple);
+}
+
+.quest-item--overtime {
+  border-color: var(--red);
+  box-shadow: var(--glow) rgba(252, 129, 129, .3);
+}
+
+.quest-item--overtime::before {
+  background: var(--red);
+}
+
+.quest-item--locked {
+  position: relative;
+}
+
+.quest-item.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+}
+
+.quest-drag-handle {
+  width: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  cursor: grab;
+  user-select: none;
+  font-size: 1em;
+  line-height: 1;
+}
+
+.quest-drag-handle:active {
+  cursor: grabbing;
+}
+
+.quest-lock-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2em;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
 .quest-checkbox {
   width: 20px;
   height: 20px;
@@ -171,6 +345,7 @@
   cursor: pointer;
   transition: .3s;
   position: relative;
+  flex-shrink: 0;
 }
 
 .quest-checkbox:hover {
@@ -196,12 +371,23 @@
   font-size: 12px;
 }
 
+.quest-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .quest-info {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+.quest-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .quest-name {
@@ -212,13 +398,19 @@
   text-overflow: ellipsis;
 }
 
+.quest-meta {
+  font-size: .8em;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+}
+
 .quest-estimate {
   font-size: .85em;
   color: var(--text-muted);
   font-family: 'SF Mono', monospace;
 }
 
-/* Estimate/timer states — same font size, no borders */
 .quest-estimate--running {
   color: var(--green);
 }
@@ -237,6 +429,10 @@
   gap: 12px;
 }
 
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
 .btn-icon {
   width: 38px;
   height: 38px;
@@ -249,6 +445,7 @@
   align-items: center;
   justify-content: center;
   transition: .3s;
+  padding: 0;
 }
 
 .btn-icon:hover {
@@ -290,92 +487,104 @@
   box-shadow: var(--glow) rgba(183, 148, 246, .3);
 }
 
+.btn-icon.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.btn-icon.danger:hover {
+  background: rgba(252, 129, 129, .1);
+  box-shadow: var(--glow) rgba(252, 129, 129, .3);
+}
+
 .btn-icon svg {
   width: 16px;
   height: 16px;
 }
 
-/* States */
-.quest-item--active {
-  background: rgba(0, 229, 255, .06);
-  border-color: var(--cyan);
-  transform: translateX(6px);
-  box-shadow: var(--glow) rgba(0, 229, 255, .2), var(--shadow);
+.btn-primary {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: .2s;
+  box-shadow: var(--glow) rgba(0, 229, 255, .3);
+  font-family: inherit;
+  font-size: inherit;
 }
 
-.quest-item--active::before {
-  transform: scaleY(1);
-  background: var(--cyan);
+.btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: var(--glow) rgba(0, 229, 255, .5);
 }
 
-.quest-item--paused {
-  border-color: var(--purple);
-  box-shadow: var(--glow) rgba(183, 148, 246, .2);
+.btn-primary:active {
+  transform: translateY(0);
 }
 
-.quest-item--paused::before {
-  background: var(--purple);
-}
-
-.quest-item--overtime {
-  border-color: var(--red);
-  box-shadow: var(--glow) rgba(252, 129, 129, .3);
-}
-
-.quest-item--overtime::before {
+.btn-danger {
   background: var(--red);
+  color: white;
 }
 
-.quest-item--dim {
-  opacity: .35;
+/* ============================================================================
+   COMPLETED SECTION
+   ============================================================================ */
+
+.quest-completed-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 2px solid var(--border);
 }
 
-/* Scrollbar */
-.daily-quest-log-today-view::-webkit-scrollbar {
-  width: 10px;
-}
-
-.daily-quest-log-today-view::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.daily-quest-log-today-view::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--cyan), var(--purple));
-  border-radius: 5px;
-  box-shadow: var(--glow) rgba(0, 229, 255, .2);
-}
-
-.daily-quest-log-today-view::-webkit-scrollbar-thumb:hover {
-  box-shadow: var(--glow) rgba(0, 229, 255, .4);
-}
-
-/* Rank Display */
-.quest-rank-display {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 1.5em;
-  font-weight: 600;
-  letter-spacing: 2px;
-}
-
-.quest-header-right {
+.quest-completed-list {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   gap: 8px;
 }
 
-.quest-rank-display .rank-icon {
-  font-size: 1.2em;
-  filter: drop-shadow(0 0 8px currentColor);
+.quest-completed-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(104, 211, 145, .05);
+  border: 1px solid rgba(104, 211, 145, .2);
+  border-radius: 8px;
+  opacity: 0.7;
+  transition: .2s;
 }
 
-.quest-rank-display .rank-name {
-  text-shadow: 0 0 20px currentColor;
+.quest-completed-item:hover {
+  opacity: 1;
 }
 
-/* Report footer */
+.quest-completed-info {
+  flex: 1;
+}
+
+.quest-completed-name {
+  text-decoration: line-through;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.quest-completed-meta {
+  font-size: .8em;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* ============================================================================
+   FOOTER
+   ============================================================================ */
+
 .quest-footer {
   margin: 32px 0 20px;
   padding-top: 24px;
@@ -384,7 +593,26 @@
   justify-content: center;
 }
 
-/* Modal styles */
+/* ============================================================================
+   MODALS
+   ============================================================================ */
+
+.quest-edit-modal .modal-content {
+  padding: 24px;
+  min-width: 400px;
+}
+
+.modal-label {
+  margin: 16px 0 6px;
+  font-weight: 500;
+  font-size: .9em;
+  color: var(--text-muted);
+}
+
+.modal-label:first-of-type {
+  margin-top: 0;
+}
+
 .modal-confirm-text {
   margin: 16px 0 24px;
   line-height: 1.6;
@@ -405,34 +633,44 @@
   font-weight: 500;
   border: 1px solid var(--border);
   transition: .2s;
+  background: var(--bg-alt);
+  color: var(--text);
+  font-family: inherit;
 }
 
 .modal-button-container button:hover {
   transform: translateY(-1px);
+  border-color: var(--cyan);
 }
 
-/* Utilities */
-.quest-empty-state {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 40px;
-  border: 2px dashed rgba(0, 229, 255, .2);
-  border-radius: 12px;
-  background: rgba(0, 229, 255, .02);
+/* ============================================================================
+   SCROLLBAR
+   ============================================================================ */
+
+.quest-view-container::-webkit-scrollbar {
+  width: 10px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-  }
+.quest-view-container::-webkit-scrollbar-track {
+  background: transparent;
 }
+
+.quest-view-container::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--cyan), var(--purple));
+  border-radius: 5px;
+  box-shadow: var(--glow) rgba(0, 229, 255, .2);
+}
+
+.quest-view-container::-webkit-scrollbar-thumb:hover {
+  box-shadow: var(--glow) rgba(0, 229, 255, .4);
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
 
 @media (max-width: 768px) {
-  .daily-quest-log-today-view {
+  .quest-view-container {
     padding: 20px;
   }
 
@@ -442,5 +680,23 @@
 
   .quest-view-header h2 {
     font-size: 1.8em;
+  }
+
+  .quest-header-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ============================================================================
+   ACCESSIBILITY
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }
