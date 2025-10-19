@@ -589,147 +589,301 @@
 }
 
 /* ============================================================================
-   MINIMAL DARK MODAL
+   BEAUTIFUL COMPACT MODAL
    ============================================================================ */
 
-.quest-modal-minimal {
+.quest-modal-beautiful {
   padding: 0;
-  min-width: 500px;
+  width: 520px;
   max-width: 90vw;
   background: var(--bg);
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-.modal-header-minimal {
-  padding: 24px 28px 20px;
-  background: var(--bg-card);
+.modal-header-beautiful {
+  padding: 20px 24px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.08), rgba(183, 148, 246, 0.08));
   border-bottom: 1px solid var(--border);
+  position: relative;
 }
 
-.modal-header-minimal h3 {
-  margin: 0 0 6px;
-  font-size: 1.4em;
+.modal-header-beautiful::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  opacity: 0.5;
+}
+
+.modal-header-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.modal-icon {
+  font-size: 2em;
+  line-height: 1;
+  filter: drop-shadow(0 2px 8px rgba(0, 229, 255, 0.3));
+}
+
+.modal-header-text h3 {
+  margin: 0 0 4px;
+  font-size: 1.3em;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.3px;
 }
 
 .modal-subtitle {
   margin: 0;
-  font-size: 0.85em;
+  font-size: 0.82em;
   color: var(--text-muted);
+  font-weight: 400;
 }
 
-.modal-form {
-  padding: 24px 28px;
+.modal-form-beautiful {
+  padding: 20px 24px;
 }
 
-.form-group {
-  margin-bottom: 20px;
+.form-group-compact {
+  margin-bottom: 14px;
 }
 
-.form-label {
+.form-label-compact {
   display: block;
-  margin-bottom: 8px;
-  font-size: 0.85em;
-  font-weight: 500;
+  margin-bottom: 6px;
+  font-size: 0.78em;
+  font-weight: 600;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.form-input-beautiful {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.93em;
+  font-family: inherit;
+  transition: all .2s;
+  box-sizing: border-box;
+}
+
+.form-input-beautiful:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.form-input-beautiful:focus {
+  outline: none;
+  border-color: var(--text-muted);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.03);
+}
+
+.form-input-beautiful.input-error {
+  border-color: var(--red);
+  animation: shake 0.3s;
+}
+
+@keyframes shake {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-4px);
+  }
+
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+.form-input-beautiful::placeholder {
+  color: #606070;
+  font-size: 0.95em;
+}
+
+.form-row-two-col {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.form-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 18px 0 20px;
+  position: relative;
+}
+
+.form-separator::before {
+  content: '•••';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg);
+  padding: 0 12px;
+  color: var(--border);
+  font-size: 0.7em;
+  letter-spacing: 4px;
+}
+
+/* Schedule Section - NOT Compact */
+.schedule-section {
+  margin-bottom: 0;
+}
+
+.schedule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.form-label-schedule {
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 0;
+}
+
+.schedule-presets-inline {
+  display: flex;
+  gap: 6px;
+}
+
+.preset-btn-inline {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .15s;
+  font-family: inherit;
+  font-size: 0.72em;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.preset-btn-inline:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.preset-btn-inline:active {
+  transform: scale(0.95);
+}
+
+.day-picker-beautiful {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.day-btn-beautiful {
+  padding: 12px 0;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.day-btn-beautiful::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  opacity: 0;
+  transition: opacity .2s;
+}
+
+.day-btn-beautiful:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.day-btn-beautiful:hover::before {
+  opacity: 0.05;
+}
+
+.day-btn-beautiful.active {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(183, 148, 246, 0.15));
+  border-color: rgba(0, 229, 255, 0.4);
+  color: var(--text);
+  box-shadow: 0 4px 12px rgba(0, 229, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.day-btn-beautiful.active::before {
+  opacity: 0.1;
+}
+
+.day-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.day-letter {
+  font-size: 1.1em;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.day-name {
+  font-size: 0.7em;
+  font-weight: 500;
+  opacity: 0.7;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.form-input {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.95em;
-  font-family: inherit;
-  transition: .2s;
-  box-sizing: border-box;
+.day-btn-beautiful.active .day-letter {
+  color: var(--cyan);
 }
 
-.form-input:focus {
-  outline: none;
-  border-color: var(--text-muted);
-  background: var(--bg);
-}
-
-.form-input::placeholder {
-  color: #606070;
-}
-
-/* Day Picker - Always Visible, Minimal */
-.day-picker-minimal {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.day-btn-minimal {
-  padding: 10px 0;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: .15s;
-  font-family: inherit;
-  font-size: 0.85em;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.day-btn-minimal:hover {
-  border-color: var(--text-muted);
-  background: var(--bg);
-}
-
-.day-btn-minimal.active {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--bg);
-}
-
-.day-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* Schedule Presets */
-.schedule-presets {
-  display: flex;
-  gap: 6px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.preset-btn {
-  padding: 6px 12px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: .15s;
-  font-family: inherit;
-  font-size: 0.8em;
-}
-
-.preset-btn:hover {
-  border-color: var(--text-muted);
-  color: var(--text);
+.day-btn-beautiful.active .day-name {
+  opacity: 1;
 }
 
 /* Modal Footer */
-.modal-footer-minimal {
-  padding: 16px 28px;
+.modal-footer-beautiful {
+  padding: 16px 24px;
   background: var(--bg-card);
   border-top: 1px solid var(--border);
   display: flex;
@@ -737,63 +891,84 @@
   align-items: center;
 }
 
-.btn-group {
+.footer-left {
+  flex: 0;
+}
+
+.footer-right {
   display: flex;
   gap: 10px;
   margin-left: auto;
 }
 
-.btn-delete-minimal {
-  padding: 9px 16px;
+.btn-delete-beautiful {
+  padding: 8px 14px;
   background: transparent;
-  border: 1px solid var(--red);
-  border-radius: 6px;
+  border: 1px solid rgba(252, 129, 129, 0.3);
+  border-radius: 8px;
   color: var(--red);
   cursor: pointer;
   font-weight: 500;
   font-family: inherit;
-  font-size: 0.9em;
-  transition: .2s;
+  font-size: 0.85em;
+  transition: all .2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.btn-delete-minimal:hover {
+.btn-delete-beautiful:hover {
   background: var(--red);
   color: white;
+  border-color: var(--red);
+  box-shadow: 0 4px 12px rgba(252, 129, 129, 0.3);
 }
 
-.btn-cancel-minimal {
+.btn-delete-beautiful svg {
+  opacity: 0.8;
+}
+
+.btn-cancel-beautiful {
   padding: 9px 18px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-muted);
   cursor: pointer;
   font-weight: 500;
   font-family: inherit;
-  font-size: 0.9em;
-  transition: .2s;
+  font-size: 0.88em;
+  transition: all .2s;
 }
 
-.btn-cancel-minimal:hover {
+.btn-cancel-beautiful:hover {
   border-color: var(--text-muted);
   color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.btn-save-minimal {
-  padding: 9px 20px;
-  background: var(--text);
+.btn-save-beautiful {
+  padding: 9px 24px;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
   border: none;
-  border-radius: 6px;
-  color: var(--bg);
+  border-radius: 8px;
+  color: white;
   cursor: pointer;
   font-weight: 600;
   font-family: inherit;
-  font-size: 0.9em;
-  transition: .2s;
+  font-size: 0.88em;
+  transition: all .2s;
+  box-shadow: 0 4px 12px rgba(0, 229, 255, 0.25);
 }
 
-.btn-save-minimal:hover {
-  background: var(--accent);
+.btn-save-beautiful:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 229, 255, 0.4);
+  filter: brightness(1.1);
+}
+
+.btn-save-beautiful:active {
+  transform: translateY(0);
 }
 
 /* ============================================================================
@@ -872,12 +1047,35 @@
     align-items: flex-start;
   }
 
-  .quest-modal-minimal {
-    min-width: 90vw;
+  .quest-modal-beautiful {
+    width: 95vw;
   }
 
-  .day-picker-minimal {
+  .form-row-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .day-picker-beautiful {
     grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+  }
+
+  .day-btn-beautiful {
+    padding: 10px 0;
+  }
+
+  .day-letter {
+    font-size: 1em;
+  }
+
+  .day-name {
+    font-size: 0.65em;
   }
 }
 
@@ -886,7 +1084,10 @@
    ============================================================================ */
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     animation: none !important;
     transition: none !important;
   }

@@ -906,14 +906,14 @@ class QuestView extends ItemView {
 }
 
 // ============================================================================
-// UNIFIED QUEST MODAL (Add/Edit) - Dark & Minimal
+// UNIFIED QUEST MODAL (Add/Edit) - Beautiful & Compact
 // ============================================================================
 
 class QuestModal extends Modal {
   constructor(app, plugin, quest, onSave) {
     super(app);
     this.plugin = plugin;
-    this.quest = quest; // null for new quest, object for edit
+    this.quest = quest;
     this.onSave = onSave;
     this.isEdit = !!quest;
     this.selectedDays = new Set();
@@ -921,7 +921,6 @@ class QuestModal extends Modal {
     if (this.isEdit) {
       this.parseSchedule(quest.schedule);
     } else {
-      // Default to weekdays for new quests
       this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F']);
     }
   }
@@ -936,7 +935,6 @@ class QuestModal extends Modal {
     } else if (s === 'weekends') {
       this.selectedDays = new Set(['S', 'U']);
     } else {
-      // Parse custom days like "M,W,F"
       const dayMap = { m: 'M', t: 'T', w: 'W', r: 'R', f: 'F', s: 'S', u: 'U' };
       const parts = s.split(',');
       this.selectedDays.clear();
@@ -947,7 +945,6 @@ class QuestModal extends Modal {
         }
       });
 
-      // If nothing parsed, default to daily
       if (this.selectedDays.size === 0) {
         this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F', 'S', 'U']);
       }
@@ -957,51 +954,89 @@ class QuestModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass('quest-modal-minimal');
+    contentEl.addClass('quest-modal-beautiful');
 
     // Header
-    const header = contentEl.createDiv({ cls: 'modal-header-minimal' });
-    header.createEl('h3', { text: this.isEdit ? 'Edit Quest' : 'New Quest' });
-    header.createEl('p', { text: this.isEdit ? 'Update quest details' : 'Create a new quest to track', cls: 'modal-subtitle' });
+    const header = contentEl.createDiv({ cls: 'modal-header-beautiful' });
+    const headerContent = header.createDiv({ cls: 'modal-header-content' });
+    headerContent.createEl('div', {
+      text: this.isEdit ? '✏️' : '✨',
+      cls: 'modal-icon'
+    });
+    const headerText = headerContent.createDiv({ cls: 'modal-header-text' });
+    headerText.createEl('h3', { text: this.isEdit ? 'Edit Quest' : 'New Quest' });
+    headerText.createEl('p', {
+      text: this.isEdit ? 'Update your quest details' : 'Create a new quest to track',
+      cls: 'modal-subtitle'
+    });
 
-    // Form Container
-    const form = contentEl.createDiv({ cls: 'modal-form' });
+    // Form
+    const form = contentEl.createDiv({ cls: 'modal-form-beautiful' });
 
     // Quest Name
-    const nameGroup = form.createDiv({ cls: 'form-group' });
-    nameGroup.createEl('label', { text: 'Quest Name', cls: 'form-label' });
+    const nameGroup = form.createDiv({ cls: 'form-group-compact' });
+    nameGroup.createEl('label', { text: 'Quest Name', cls: 'form-label-compact' });
     const nameInput = nameGroup.createEl('input', {
       type: 'text',
       value: this.isEdit ? this.quest.name : '',
-      cls: 'form-input',
+      cls: 'form-input-beautiful',
       placeholder: 'e.g., Morning Exercise, Read for 30min'
     });
 
-    // Category
-    const categoryGroup = form.createDiv({ cls: 'form-group' });
-    categoryGroup.createEl('label', { text: 'Category', cls: 'form-label' });
+    // Two column layout for Category and Estimate
+    const twoColRow = form.createDiv({ cls: 'form-row-two-col' });
+
+    const categoryGroup = twoColRow.createDiv({ cls: 'form-group-compact' });
+    categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
     const categoryInput = categoryGroup.createEl('input', {
       type: 'text',
       value: this.isEdit ? this.quest.category : '',
-      cls: 'form-input',
-      placeholder: 'e.g., Health, Work, Learning'
+      cls: 'form-input-beautiful',
+      placeholder: 'e.g., Health, Work'
     });
 
-    // Estimate
-    const estimateGroup = form.createDiv({ cls: 'form-group' });
-    estimateGroup.createEl('label', { text: 'Estimated Time (minutes)', cls: 'form-label' });
+    const estimateGroup = twoColRow.createDiv({ cls: 'form-group-compact' });
+    estimateGroup.createEl('label', { text: 'Time (min)', cls: 'form-label-compact' });
     const estimateInput = estimateGroup.createEl('input', {
       type: 'number',
       value: this.isEdit && this.quest.estimateMinutes ? this.quest.estimateMinutes : '',
-      cls: 'form-input',
+      cls: 'form-input-beautiful',
       placeholder: 'Optional'
     });
 
-    // Schedule Days
-    const scheduleGroup = form.createDiv({ cls: 'form-group' });
-    scheduleGroup.createEl('label', { text: 'Schedule Days', cls: 'form-label' });
+    // Separator
+    form.createDiv({ cls: 'form-separator' });
 
-    const dayPicker = scheduleGroup.createDiv({ cls: 'day-picker-minimal' });
+    // Schedule Days Section (Not Compact)
+    const scheduleSection = form.createDiv({ cls: 'schedule-section' });
+    const scheduleHeader = scheduleSection.createDiv({ cls: 'schedule-header' });
+    scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
+
+    // Quick Presets (moved to top, inline)
+    const presetsInline = scheduleHeader.createDiv({ cls: 'schedule-presets-inline' });
+
+    const presets = [
+      { label: 'Daily', days: ['M', 'T', 'W', 'R', 'F', 'S', 'U'] },
+      { label: 'Weekdays', days: ['M', 'T', 'W', 'R', 'F'] },
+      { label: 'Weekends', days: ['S', 'U'] }
+    ];
+
+    presets.forEach(preset => {
+      const presetBtn = presetsInline.createEl('button', {
+        text: preset.label,
+        cls: 'preset-btn-inline',
+        attr: { 'type': 'button' }
+      });
+
+      presetBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.selectedDays.clear();
+        preset.days.forEach(d => this.selectedDays.add(d));
+        this.updateDayButtons();
+      });
+    });
+
+    const dayPicker = scheduleSection.createDiv({ cls: 'day-picker-beautiful' });
 
     const days = [
       { key: 'M', label: 'Mon', fullName: 'Monday' },
@@ -1013,9 +1048,11 @@ class QuestModal extends Modal {
       { key: 'U', label: 'Sun', fullName: 'Sunday' }
     ];
 
+    this.dayButtons = [];
+
     days.forEach(day => {
       const dayBtn = dayPicker.createEl('button', {
-        cls: 'day-btn-minimal',
+        cls: 'day-btn-beautiful',
         attr: {
           'data-day': day.key,
           'type': 'button',
@@ -1023,12 +1060,15 @@ class QuestModal extends Modal {
         }
       });
 
-      const dayLabel = dayBtn.createDiv({ cls: 'day-label' });
-      dayLabel.createEl('span', { text: day.label, cls: 'day-short' });
+      const dayLabel = dayBtn.createDiv({ cls: 'day-content' });
+      dayLabel.createEl('span', { text: day.key, cls: 'day-letter' });
+      dayLabel.createEl('span', { text: day.label, cls: 'day-name' });
 
       if (this.selectedDays.has(day.key)) {
         dayBtn.addClass('active');
       }
+
+      this.dayButtons.push({ btn: dayBtn, key: day.key });
 
       dayBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -1042,51 +1082,32 @@ class QuestModal extends Modal {
       });
     });
 
-    // Quick Presets
-    const presetsDiv = scheduleGroup.createDiv({ cls: 'schedule-presets' });
-
-    const presets = [
-      { label: 'Daily', days: ['M', 'T', 'W', 'R', 'F', 'S', 'U'] },
-      { label: 'Weekdays', days: ['M', 'T', 'W', 'R', 'F'] },
-      { label: 'Weekends', days: ['S', 'U'] },
-      { label: 'Clear All', days: [] }
-    ];
-
-    presets.forEach(preset => {
-      const presetBtn = presetsDiv.createEl('button', {
-        text: preset.label,
-        cls: 'preset-btn',
-        attr: { 'type': 'button' }
+    this.updateDayButtons = () => {
+      this.dayButtons.forEach(({ btn, key }) => {
+        if (this.selectedDays.has(key)) {
+          btn.addClass('active');
+        } else {
+          btn.removeClass('active');
+        }
       });
+    };
 
-      presetBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        this.selectedDays.clear();
-        preset.days.forEach(d => this.selectedDays.add(d));
+    // Footer
+    const footer = contentEl.createDiv({ cls: 'modal-footer-beautiful' });
 
-        dayPicker.querySelectorAll('.day-btn-minimal').forEach(btn => {
-          const dayKey = btn.getAttribute('data-day');
-          if (this.selectedDays.has(dayKey)) {
-            btn.addClass('active');
-          } else {
-            btn.removeClass('active');
-          }
-        });
-      });
-    });
-
-    // Footer Buttons
-    const footer = contentEl.createDiv({ cls: 'modal-footer-minimal' });
+    const leftActions = footer.createDiv({ cls: 'footer-left' });
+    const rightActions = footer.createDiv({ cls: 'footer-right' });
 
     if (this.isEdit) {
-      const deleteBtn = footer.createEl('button', {
-        text: 'Delete',
-        cls: 'btn-delete-minimal'
+      const deleteBtn = leftActions.createEl('button', {
+        cls: 'btn-delete-beautiful'
       });
+      deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg><span>Delete</span>';
+
       deleteBtn.addEventListener('click', async () => {
         const confirmed = await this.plugin.showConfirmDialog(
           'Delete Quest',
-          `Are you sure you want to delete "${this.quest.name}"?`
+          `Are you sure you want to delete "${this.quest.name}"? This action cannot be undone.`
         );
         if (!confirmed) return;
         await this.plugin.deleteQuest(this.quest.id, true);
@@ -1094,17 +1115,15 @@ class QuestModal extends Modal {
       });
     }
 
-    const btnGroup = footer.createDiv({ cls: 'btn-group' });
-
-    const cancelBtn = btnGroup.createEl('button', {
+    const cancelBtn = rightActions.createEl('button', {
       text: 'Cancel',
-      cls: 'btn-cancel-minimal'
+      cls: 'btn-cancel-beautiful'
     });
     cancelBtn.addEventListener('click', () => this.close());
 
-    const saveBtn = btnGroup.createEl('button', {
+    const saveBtn = rightActions.createEl('button', {
       text: this.isEdit ? 'Save Changes' : 'Create Quest',
-      cls: 'btn-save-minimal'
+      cls: 'btn-save-beautiful'
     });
 
     const doSave = async () => {
@@ -1112,6 +1131,8 @@ class QuestModal extends Modal {
       if (!name) {
         new Notice('❌ Quest name is required');
         nameInput.focus();
+        nameInput.addClass('input-error');
+        setTimeout(() => nameInput.removeClass('input-error'), 2000);
         return;
       }
 
@@ -1120,7 +1141,6 @@ class QuestModal extends Modal {
         return;
       }
 
-      // Build schedule string
       let schedule;
       const daysArray = Array.from(this.selectedDays).sort();
 
@@ -1145,8 +1165,26 @@ class QuestModal extends Modal {
     };
 
     saveBtn.addEventListener('click', doSave);
+
     nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') doSave();
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        doSave();
+      }
+    });
+
+    categoryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doSave();
+      }
+    });
+
+    estimateInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doSave();
+      }
     });
 
     setTimeout(() => nameInput.focus(), 50);
