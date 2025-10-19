@@ -638,21 +638,29 @@ class QuestView extends ItemView {
     top.createEl('h2', { text: "Today's Quests" });
     const rankDisplay = top.createDiv({ cls: 'quest-rank-display' });
     rankDisplay.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name}</span>`;
+
+    const todayQuests = this.plugin.getTodayQuests();
+    const completedCount = todayQuests.filter(q => this.plugin.isCompletedToday(q.id)).length;
+    const totalCount = todayQuests.length;
+
     const stats = header.createDiv({ cls: 'quest-view-stats' });
     stats.createEl('span', { text: `Level ${player.level}` });
     stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
+    stats.createEl('span', { text: `${completedCount}/${totalCount} Quests`, cls: 'quest-completion-stat' });
+
+    // Add Quest Button in header
+    const addBtn = stats.createEl('button', { text: '➕ Add Quest', cls: 'btn-add-header' });
+    addBtn.addEventListener('click', () => this.openAddQuestModal());
+
     const xpBar = header.createDiv({ cls: 'quest-xp-bar' });
     xpBar.createDiv({ cls: 'quest-xp-fill', attr: { style: `width: ${xpPercent}%` } });
 
-    // Add Quest Form
-    this.renderAddQuestSection(container);
-
-    // Quests
-    const todayQuests = this.plugin.getTodayQuests();
+    // Quests (filter out completed ones)
     const otherQuests = this.plugin.getOtherQuests();
+    const activeToday = todayQuests.filter(q => !this.plugin.isCompletedToday(q.id));
 
     const categoriesMap = new Map();
-    for (const q of todayQuests) {
+    for (const q of activeToday) {
       const cat = q.category || 'Uncategorized';
       if (!categoriesMap.has(cat)) categoriesMap.set(cat, []);
       categoriesMap.get(cat).push(q);
@@ -667,7 +675,7 @@ class QuestView extends ItemView {
         for (const q of quests) this.renderQuestItem(categoryList, q, { draggable: true, locked: false });
       }
     } else {
-      container.createDiv({ cls: 'quest-empty-state', text: '🎉 No quests scheduled for today!' });
+      container.createDiv({ cls: 'quest-empty-state', text: '🎉 All quests completed for today!' });
     }
 
     if (otherQuests.length > 0) {
@@ -683,51 +691,6 @@ class QuestView extends ItemView {
     const footer = container.createDiv({ cls: 'quest-footer' });
     const reportBtn = footer.createEl('button', { text: '📊 Generate Report', cls: 'btn-primary' });
     reportBtn.addEventListener('click', () => this.plugin.generateReport());
-  }
-
-  renderAddQuestSection(container) {
-    const section = container.createDiv({ cls: 'quest-add-section' });
-    const toggleBtn = section.createDiv({ cls: 'quest-add-toggle' });
-    toggleBtn.innerHTML = '<span style="font-size: 1.2em;">➕</span> <span>Add Quest</span>';
-
-    const form = section.createDiv({ cls: 'quest-add-form hidden' });
-    const nameInput = form.createEl('input', { type: 'text', placeholder: 'Quest name...', cls: 'quest-input' });
-
-    const row = form.createDiv({ cls: 'quest-form-row' });
-    const categoryInput = row.createEl('input', { type: 'text', placeholder: 'Category', cls: 'quest-input quest-input--inline' });
-    const scheduleSelect = row.createEl('select', { cls: 'quest-input quest-input--inline' });
-    [
-      { value: 'daily', label: 'Daily' },
-      { value: 'weekdays', label: 'Weekdays' },
-      { value: 'weekends', label: 'Weekends' },
-      { value: 'M,W,F', label: 'Mon/Wed/Fri' },
-      { value: 'T,R', label: 'Tue/Thu' }
-    ].forEach(opt => scheduleSelect.createEl('option', { value: opt.value, text: opt.label }));
-
-    const estimateInput = row.createEl('input', { type: 'number', placeholder: 'Min', cls: 'quest-input quest-input--inline quest-input--number' });
-    const addBtn = row.createEl('button', { text: 'Add', cls: 'btn-add' });
-
-    toggleBtn.addEventListener('click', () => {
-      const isHidden = form.hasClass('hidden');
-      form.toggleClass('hidden', !isHidden);
-      if (isHidden) setTimeout(() => nameInput.focus(), 50);
-    });
-
-    const submitQuest = async () => {
-      const name = nameInput.value.trim();
-      if (!name) return void new Notice('❌ Quest name required');
-      await this.plugin.createQuest({
-        name,
-        category: categoryInput.value.trim() || 'Uncategorized',
-        schedule: scheduleSelect.value,
-        estimateMinutes: estimateInput.value ? parseInt(estimateInput.value) : null
-      });
-      nameInput.value = ''; categoryInput.value = ''; estimateInput.value = ''; scheduleSelect.value = 'daily';
-      form.addClass('hidden');
-    };
-
-    addBtn.addEventListener('click', submitQuest);
-    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitQuest(); });
   }
 
   renderQuestItem(container, quest, options = {}) {
@@ -792,10 +755,13 @@ class QuestView extends ItemView {
       }
     }
 
-    const actions = item.createDiv({ cls: 'quest-actions' });
-    const editBtn = this.createMiniIcon('edit', 'Edit');
-    editBtn.addEventListener('click', () => this.openEditModal(quest));
-    actions.appendChild(editBtn);
+    // Add edit button to controls
+    if (!locked) {
+      const editBtn = this.createIconButton('edit', 'Edit');
+      editBtn.addClass('edit-gradient');
+      editBtn.addEventListener('click', () => this.openEditModal(quest));
+      controls.appendChild(editBtn);
+    }
 
     if (locked) {
       const lockOverlay = item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' });
@@ -912,6 +878,13 @@ class QuestView extends ItemView {
     }
   }
 
+  openAddQuestModal() {
+    const modal = new AddQuestModal(this.app, this.plugin, async (questData) => {
+      await this.plugin.createQuest(questData);
+    });
+    modal.open();
+  }
+
   openEditModal(quest) {
     const modal = new EditQuestModal(this.app, this.plugin, quest, async (updated) => {
       await this.plugin.updateQuest(quest.id, updated);
@@ -925,21 +898,162 @@ class QuestView extends ItemView {
     btn.title = title;
     const svgs = {
       play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
-      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>'
+      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>',
+      edit: '<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>'
     };
     btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
     return btn;
   }
+}
 
-  createMiniIcon(icon, title) {
-    const btn = document.createElement('button');
-    btn.className = 'btn-mini';
-    btn.title = title;
-    const svgs = {
-      edit: '<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>'
+// ============================================================================
+// ADD QUEST MODAL
+// ============================================================================
+
+class AddQuestModal extends Modal {
+  constructor(app, plugin, onSave) {
+    super(app);
+    this.plugin = plugin;
+    this.onSave = onSave;
+    this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F']); // Default weekdays
+    this.scheduleType = 'weekdays';
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('quest-modal');
+
+    contentEl.createEl('h3', { text: '✨ Create New Quest' });
+
+    const nameInput = contentEl.createEl('input', {
+      type: 'text', 
+      cls: 'quest-input', 
+      placeholder: 'Quest name...'
+    });
+
+    const categoryInput = contentEl.createEl('input', {
+      type: 'text', 
+      cls: 'quest-input', 
+      placeholder: 'Category (e.g., Work, Health, Learning)'
+    });
+
+    // Schedule Type Selector
+    contentEl.createEl('label', { text: 'Schedule', cls: 'quest-label' });
+    const scheduleTypeDiv = contentEl.createDiv({ cls: 'schedule-type-selector' });
+    
+    const scheduleOptions = [
+      { value: 'daily', label: 'Daily', icon: '🌞' },
+      { value: 'weekdays', label: 'Weekdays', icon: '💼' },
+      { value: 'weekends', label: 'Weekends', icon: '🎮' },
+      { value: 'custom', label: 'Custom Days', icon: '📅' }
+    ];
+
+    scheduleOptions.forEach(opt => {
+      const btn = scheduleTypeDiv.createEl('button', { 
+        text: `${opt.icon} ${opt.label}`, 
+        cls: 'schedule-type-btn' 
+      });
+      if (opt.value === this.scheduleType) btn.addClass('active');
+      
+      btn.addEventListener('click', () => {
+        scheduleTypeDiv.querySelectorAll('.schedule-type-btn').forEach(b => b.removeClass('active'));
+        btn.addClass('active');
+        this.scheduleType = opt.value;
+        
+        if (opt.value === 'daily') {
+          this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F', 'S', 'U']);
+        } else if (opt.value === 'weekdays') {
+          this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F']);
+        } else if (opt.value === 'weekends') {
+          this.selectedDays = new Set(['S', 'U']);
+        }
+        
+        dayPickerDiv.toggleClass('hidden', opt.value !== 'custom');
+        this.updateDayButtons();
+      });
+    });
+
+    // Day Picker
+    const dayPickerDiv = contentEl.createDiv({ cls: 'day-picker hidden' });
+    const days = [
+      { key: 'M', label: 'Mon' },
+      { key: 'T', label: 'Tue' },
+      { key: 'W', label: 'Wed' },
+      { key: 'R', label: 'Thu' },
+      { key: 'F', label: 'Fri' },
+      { key: 'S', label: 'Sat' },
+      { key: 'U', label: 'Sun' }
+    ];
+
+    days.forEach(day => {
+      const dayBtn = dayPickerDiv.createEl('button', { 
+        text: day.label, 
+        cls: 'day-btn',
+        attr: { 'data-day': day.key }
+      });
+      if (this.selectedDays.has(day.key)) dayBtn.addClass('active');
+      
+      dayBtn.addEventListener('click', () => {
+        if (this.selectedDays.has(day.key)) {
+          this.selectedDays.delete(day.key);
+          dayBtn.removeClass('active');
+        } else {
+          this.selectedDays.add(day.key);
+          dayBtn.addClass('active');
+        }
+      });
+    });
+
+    this.updateDayButtons = () => {
+      days.forEach(day => {
+        const btn = dayPickerDiv.querySelector(`[data-day="${day.key}"]`);
+        if (this.selectedDays.has(day.key)) btn.addClass('active');
+        else btn.removeClass('active');
+      });
     };
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
-    return btn;
+
+    // Estimate
+    contentEl.createEl('label', { text: 'Estimated Time (optional)', cls: 'quest-label' });
+    const estimateInput = contentEl.createEl('input', {
+      type: 'number', 
+      cls: 'quest-input', 
+      placeholder: 'Minutes'
+    });
+
+    const btnRow = contentEl.createDiv({ cls: 'modal-buttons' });
+    const cancelBtn = btnRow.createEl('button', { text: 'Cancel', cls: 'btn-secondary' });
+    cancelBtn.addEventListener('click', () => this.close());
+
+    const saveBtn = btnRow.createEl('button', { text: 'Create Quest', cls: 'btn-primary' });
+    const doSave = async () => {
+      const name = nameInput.value.trim();
+      if (!name) return void new Notice('❌ Quest name required');
+
+      let schedule = 'daily';
+      if (this.scheduleType === 'weekdays') schedule = 'weekdays';
+      else if (this.scheduleType === 'weekends') schedule = 'weekends';
+      else if (this.scheduleType === 'custom' && this.selectedDays.size > 0) {
+        schedule = Array.from(this.selectedDays).join(',');
+      }
+
+      await this.onSave({
+        name,
+        category: categoryInput.value.trim() || 'Uncategorized',
+        schedule,
+        estimateMinutes: estimateInput.value ? parseInt(estimateInput.value) : null
+      });
+      this.close();
+    };
+    
+    saveBtn.addEventListener('click', doSave);
+    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave(); });
+
+    setTimeout(() => nameInput.focus(), 50);
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
 
@@ -953,35 +1067,144 @@ class EditQuestModal extends Modal {
     this.plugin = plugin;
     this.quest = quest;
     this.onSave = onSave;
+    this.selectedDays = new Set();
+    this.scheduleType = this.detectScheduleType(quest.schedule);
+    this.parseSchedule(quest.schedule);
+  }
+
+  detectScheduleType(schedule) {
+    if (schedule === 'daily') return 'daily';
+    if (schedule === 'weekdays') return 'weekdays';
+    if (schedule === 'weekends') return 'weekends';
+    return 'custom';
+  }
+
+  parseSchedule(schedule) {
+    if (schedule === 'daily') {
+      this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F', 'S', 'U']);
+    } else if (schedule === 'weekdays') {
+      this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F']);
+    } else if (schedule === 'weekends') {
+      this.selectedDays = new Set(['S', 'U']);
+    } else {
+      const dayMap = { m: 'M', t: 'T', w: 'W', r: 'R', f: 'F', s: 'S', u: 'U' };
+      const parts = schedule.toLowerCase().split(',');
+      parts.forEach(part => {
+        const trimmed = part.trim();
+        if (dayMap[trimmed]) this.selectedDays.add(dayMap[trimmed]);
+      });
+    }
   }
 
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass('quest-edit-modal');
+    contentEl.addClass('quest-modal');
 
     contentEl.createEl('h3', { text: '✏️ Edit Quest' });
 
     const nameInput = contentEl.createEl('input', {
-      type: 'text', value: this.quest.name, cls: 'quest-input', placeholder: 'Quest name'
+      type: 'text', 
+      value: this.quest.name, 
+      cls: 'quest-input', 
+      placeholder: 'Quest name'
     });
 
-    const row1 = contentEl.createDiv({ cls: 'modal-row' });
-    const catInput = row1.createEl('input', {
-      type: 'text', value: this.quest.category, cls: 'quest-input quest-input--inline', placeholder: 'Category'
-    });
-    const schedInput = row1.createEl('input', {
-      type: 'text', value: this.quest.schedule, cls: 'quest-input quest-input--inline', placeholder: 'Schedule (e.g., daily, M,W,F)'
+    const categoryInput = contentEl.createEl('input', {
+      type: 'text', 
+      value: this.quest.category, 
+      cls: 'quest-input', 
+      placeholder: 'Category'
     });
 
-    const row2 = contentEl.createDiv({ cls: 'modal-row' });
-    const estInput = row2.createEl('input', {
-      type: 'number', value: this.quest.estimateMinutes || '', cls: 'quest-input quest-input--inline', placeholder: 'Estimate (minutes)'
+    // Schedule Type Selector
+    contentEl.createEl('label', { text: 'Schedule', cls: 'quest-label' });
+    const scheduleTypeDiv = contentEl.createDiv({ cls: 'schedule-type-selector' });
+    
+    const scheduleOptions = [
+      { value: 'daily', label: 'Daily', icon: '🌞' },
+      { value: 'weekdays', label: 'Weekdays', icon: '💼' },
+      { value: 'weekends', label: 'Weekends', icon: '🎮' },
+      { value: 'custom', label: 'Custom Days', icon: '📅' }
+    ];
+
+    scheduleOptions.forEach(opt => {
+      const btn = scheduleTypeDiv.createEl('button', { 
+        text: `${opt.icon} ${opt.label}`, 
+        cls: 'schedule-type-btn' 
+      });
+      if (opt.value === this.scheduleType) btn.addClass('active');
+      
+      btn.addEventListener('click', () => {
+        scheduleTypeDiv.querySelectorAll('.schedule-type-btn').forEach(b => b.removeClass('active'));
+        btn.addClass('active');
+        this.scheduleType = opt.value;
+        
+        if (opt.value === 'daily') {
+          this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F', 'S', 'U']);
+        } else if (opt.value === 'weekdays') {
+          this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F']);
+        } else if (opt.value === 'weekends') {
+          this.selectedDays = new Set(['S', 'U']);
+        }
+        
+        dayPickerDiv.toggleClass('hidden', opt.value !== 'custom');
+        this.updateDayButtons();
+      });
+    });
+
+    // Day Picker
+    const dayPickerDiv = contentEl.createDiv({ cls: 'day-picker' });
+    if (this.scheduleType !== 'custom') dayPickerDiv.addClass('hidden');
+    
+    const days = [
+      { key: 'M', label: 'Mon' },
+      { key: 'T', label: 'Tue' },
+      { key: 'W', label: 'Wed' },
+      { key: 'R', label: 'Thu' },
+      { key: 'F', label: 'Fri' },
+      { key: 'S', label: 'Sat' },
+      { key: 'U', label: 'Sun' }
+    ];
+
+    days.forEach(day => {
+      const dayBtn = dayPickerDiv.createEl('button', { 
+        text: day.label, 
+        cls: 'day-btn',
+        attr: { 'data-day': day.key }
+      });
+      if (this.selectedDays.has(day.key)) dayBtn.addClass('active');
+      
+      dayBtn.addEventListener('click', () => {
+        if (this.selectedDays.has(day.key)) {
+          this.selectedDays.delete(day.key);
+          dayBtn.removeClass('active');
+        } else {
+          this.selectedDays.add(day.key);
+          dayBtn.addClass('active');
+        }
+      });
+    });
+
+    this.updateDayButtons = () => {
+      days.forEach(day => {
+        const btn = dayPickerDiv.querySelector(`[data-day="${day.key}"]`);
+        if (this.selectedDays.has(day.key)) btn.addClass('active');
+        else btn.removeClass('active');
+      });
+    };
+
+    // Estimate
+    contentEl.createEl('label', { text: 'Estimated Time (optional)', cls: 'quest-label' });
+    const estimateInput = contentEl.createEl('input', {
+      type: 'number', 
+      value: this.quest.estimateMinutes || '', 
+      cls: 'quest-input', 
+      placeholder: 'Minutes'
     });
 
     const btnRow = contentEl.createDiv({ cls: 'modal-buttons' });
 
-    // Delete inside edit modal
     const deleteBtn = btnRow.createEl('button', { text: 'Delete', cls: 'btn-danger' });
     deleteBtn.style.marginRight = 'auto';
     deleteBtn.addEventListener('click', async () => {
@@ -994,18 +1217,27 @@ class EditQuestModal extends Modal {
     const cancelBtn = btnRow.createEl('button', { text: 'Cancel', cls: 'btn-secondary' });
     cancelBtn.addEventListener('click', () => this.close());
 
-    const saveBtn = btnRow.createEl('button', { text: 'Save', cls: 'btn-primary' });
+    const saveBtn = btnRow.createEl('button', { text: 'Save Changes', cls: 'btn-primary' });
     const doSave = async () => {
       const name = nameInput.value.trim();
       if (!name) return void new Notice('❌ Quest name required');
+
+      let schedule = 'daily';
+      if (this.scheduleType === 'weekdays') schedule = 'weekdays';
+      else if (this.scheduleType === 'weekends') schedule = 'weekends';
+      else if (this.scheduleType === 'custom' && this.selectedDays.size > 0) {
+        schedule = Array.from(this.selectedDays).join(',');
+      }
+
       await this.onSave({
         name,
-        category: catInput.value.trim() || 'Uncategorized',
-        schedule: schedInput.value.trim() || 'daily',
-        estimateMinutes: estInput.value ? parseInt(estInput.value) : null
+        category: categoryInput.value.trim() || 'Uncategorized',
+        schedule,
+        estimateMinutes: estimateInput.value ? parseInt(estimateInput.value) : null
       });
       this.close();
     };
+    
     saveBtn.addEventListener('click', doSave);
     nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave(); });
 
