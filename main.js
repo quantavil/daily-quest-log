@@ -1,6 +1,6 @@
 /**
  * Daily Quest Log - Pure JSON Implementation
- * No markdown sync - QuestLog.json is the single source of truth
+ * Single source of truth with full UI management
  */
 
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
@@ -242,7 +242,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     const confirmed = await this.showConfirmDialog(
       '🗑️ Delete Quest',
-      `Are you sure you want to delete "${quest.name}"? This will also remove its completion history.`
+      `Are you sure you want to delete "${quest.name}"?`
     );
 
     if (!confirmed) return;
@@ -777,7 +777,7 @@ class QuestView extends ItemView {
     const header = container.createDiv({ cls: 'quest-view-header' });
 
     const top = header.createDiv({ cls: 'quest-header-top' });
-    top.createEl('h2', { text: 'Quest Log' });
+    top.createEl('h2', { text: "Today's Quests" });
 
     const rankDisplay = top.createDiv({ cls: 'quest-rank-display' });
     rankDisplay.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color: ${rank.color}">${rank.name}</span>`;
@@ -792,21 +792,35 @@ class QuestView extends ItemView {
     // Add Quest Form
     this.renderAddQuestSection(container);
 
-    // Today's Quests
+    // Group quests by category (TODAY'S QUESTS ONLY)
     const todayQuests = this.plugin.getTodayQuests();
-    if (todayQuests.length > 0) {
-      container.createDiv({ cls: 'quest-section-title', text: '📋 Today' });
-      const todayList = container.createDiv({ cls: 'quest-list' });
-      todayList.dataset.droppable = 'today';
-      this.setupDragDrop(todayList, todayQuests);
+    const otherQuests = this.plugin.getOtherQuests();
 
-      for (const q of todayQuests) {
-        this.renderQuestItem(todayList, q, { draggable: true, locked: false });
-      }
+    // Group today's quests by category
+    const categoriesMap = new Map();
+    for (const q of todayQuests) {
+      const cat = q.category || 'Uncategorized';
+      if (!categoriesMap.has(cat)) categoriesMap.set(cat, []);
+      categoriesMap.get(cat).push(q);
     }
 
-    // Other Days
-    const otherQuests = this.plugin.getOtherQuests();
+    // Render each category
+    if (categoriesMap.size > 0) {
+      for (const [category, quests] of categoriesMap.entries()) {
+        container.createDiv({ cls: 'quest-section-title', text: category });
+        const categoryList = container.createDiv({ cls: 'quest-list' });
+        categoryList.dataset.category = category;
+        this.setupDragDrop(categoryList, quests);
+
+        for (const q of quests) {
+          this.renderQuestItem(categoryList, q, { draggable: true, locked: false });
+        }
+      }
+    } else {
+      container.createDiv({ cls: 'quest-empty-state', text: '🎉 No quests scheduled for today!' });
+    }
+
+    // Other Days Section
     if (otherQuests.length > 0) {
       container.createDiv({ cls: 'quest-section-title quest-section-other', text: '📅 Other Days' });
       const otherList = container.createDiv({ cls: 'quest-list quest-list--dimmed' });
@@ -829,7 +843,7 @@ class QuestView extends ItemView {
     const section = container.createDiv({ cls: 'quest-add-section' });
 
     const toggleBtn = section.createDiv({ cls: 'quest-add-toggle' });
-    toggleBtn.innerHTML = '<span class="add-icon">➕</span> <span>Add New Quest</span>';
+    toggleBtn.innerHTML = '<span style="font-size: 1.2em;">➕</span> <span>Add Quest</span>';
 
     const form = section.createDiv({ cls: 'quest-add-form hidden' });
 
@@ -839,15 +853,15 @@ class QuestView extends ItemView {
       cls: 'quest-input'
     });
 
-    const row1 = form.createDiv({ cls: 'quest-form-row' });
+    const row = form.createDiv({ cls: 'quest-form-row' });
 
-    const categoryInput = row1.createEl('input', {
+    const categoryInput = row.createEl('input', {
       type: 'text',
       placeholder: 'Category',
-      cls: 'quest-input quest-input--small'
+      cls: 'quest-input quest-input--inline'
     });
 
-    const scheduleSelect = row1.createEl('select', { cls: 'quest-input quest-input--small' });
+    const scheduleSelect = row.createEl('select', { cls: 'quest-input quest-input--inline' });
     [
       { value: 'daily', label: 'Daily' },
       { value: 'weekdays', label: 'Weekdays' },
@@ -858,27 +872,24 @@ class QuestView extends ItemView {
       scheduleSelect.createEl('option', { value: opt.value, text: opt.label });
     });
 
-    const row2 = form.createDiv({ cls: 'quest-form-row' });
-
-    const estimateInput = row2.createEl('input', {
+    const estimateInput = row.createEl('input', {
       type: 'number',
-      placeholder: 'Minutes (optional)',
-      cls: 'quest-input quest-input--small'
+      placeholder: 'Min',
+      cls: 'quest-input quest-input--inline quest-input--number'
     });
 
-    const addBtn = row2.createEl('button', { text: '+ Add', cls: 'btn-primary' });
+    const addBtn = row.createEl('button', { text: 'Add', cls: 'btn-add' });
 
     toggleBtn.addEventListener('click', () => {
-      form.toggleClass('hidden', !form.hasClass('hidden'));
-      if (!form.hasClass('hidden')) {
-        setTimeout(() => nameInput.focus(), 50);
-      }
+      const isHidden = form.hasClass('hidden');
+      form.toggleClass('hidden', !isHidden);
+      if (isHidden) setTimeout(() => nameInput.focus(), 50);
     });
 
     const submitQuest = async () => {
       const name = nameInput.value.trim();
       if (!name) {
-        new Notice('❌ Quest name is required');
+        new Notice('❌ Quest name required');
         return;
       }
 
@@ -932,56 +943,50 @@ class QuestView extends ItemView {
 
     if (!locked) {
       checkbox.addEventListener('change', async () => {
-        if (checkbox.checked) {
-          await this.plugin.completeQuest(quest);
-        }
+        if (checkbox.checked) await this.plugin.completeQuest(quest);
       });
     }
 
     const info = item.createDiv({ cls: 'quest-info' });
-
-    const nameRow = info.createDiv({ cls: 'quest-name-row' });
-    nameRow.createDiv({ cls: 'quest-name', text: quest.name });
-
-    const meta = info.createDiv({ cls: 'quest-meta' });
-    meta.innerHTML = `<span>${quest.category}</span> <span>•</span> <span>${this.formatSchedule(quest.schedule)}</span>`;
+    info.createDiv({ cls: 'quest-name', text: quest.name });
 
     const estimateEl = info.createDiv({ cls: 'quest-estimate' });
     this.updateEstimateDisplay(estimateEl, quest, totalMinutes, isActive, isPaused, isOvertime);
 
-    const right = item.createDiv({ cls: 'quest-right' });
+    const controls = item.createDiv({ cls: 'quest-controls' });
 
     if (!locked) {
       if (!isActive && !isPaused) {
-        const startBtn = this.createIconButton('play', 'Start quest');
+        const startBtn = this.createIconButton('play', 'Start');
         startBtn.addClass('primary');
         startBtn.addEventListener('click', async () => await this.plugin.startQuest(quest.id));
-        right.appendChild(startBtn);
+        controls.appendChild(startBtn);
       }
 
       if (isActive) {
-        const pauseBtn = this.createIconButton('pause', 'Pause quest');
+        const pauseBtn = this.createIconButton('pause', 'Pause');
         pauseBtn.addClass('accent');
         pauseBtn.addEventListener('click', async () => await this.plugin.pauseQuest(quest.id));
-        right.appendChild(pauseBtn);
+        controls.appendChild(pauseBtn);
       }
 
       if (isPaused && !isActive) {
-        const resumeBtn = this.createIconButton('play', 'Resume quest');
+        const resumeBtn = this.createIconButton('play', 'Resume');
         resumeBtn.addClass('primary');
         resumeBtn.addEventListener('click', async () => await this.plugin.resumeQuest(quest.id));
-        right.appendChild(resumeBtn);
+        controls.appendChild(resumeBtn);
       }
     }
 
-    const editBtn = this.createIconButton('edit', 'Edit quest');
-    editBtn.addEventListener('click', () => this.openEditModal(quest));
-    right.appendChild(editBtn);
+    const actions = item.createDiv({ cls: 'quest-actions' });
 
-    const deleteBtn = this.createIconButton('trash', 'Delete quest');
-    deleteBtn.addClass('danger');
+    const editBtn = this.createMiniIcon('edit', 'Edit');
+    editBtn.addEventListener('click', () => this.openEditModal(quest));
+    actions.appendChild(editBtn);
+
+    const deleteBtn = this.createMiniIcon('trash', 'Delete');
     deleteBtn.addEventListener('click', async () => await this.plugin.deleteQuest(quest.id));
-    right.appendChild(deleteBtn);
+    actions.appendChild(deleteBtn);
 
     if (locked) {
       const lockOverlay = item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' });
@@ -1025,17 +1030,6 @@ class QuestView extends ItemView {
     } else {
       div.setText('');
     }
-  }
-
-  formatSchedule(schedule) {
-    const map = {
-      'daily': 'Every day',
-      'weekdays': 'Mon-Fri',
-      'weekends': 'Sat-Sun',
-      'M,W,F': 'Mon/Wed/Fri',
-      'T,R': 'Tue/Thu'
-    };
-    return map[schedule] || schedule;
   }
 
   hasAnyTime(questId) {
@@ -1151,12 +1145,24 @@ class QuestView extends ItemView {
 
     const svgs = {
       play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
-      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>',
+      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>'
+    };
+
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
+    return btn;
+  }
+
+  createMiniIcon(icon, title) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-mini';
+    btn.title = title;
+
+    const svgs = {
       edit: '<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>',
       trash: '<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>'
     };
 
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
     return btn;
   }
 }
@@ -1177,65 +1183,68 @@ class EditQuestModal extends Modal {
     contentEl.empty();
     contentEl.addClass('quest-edit-modal');
 
-    contentEl.createEl('h2', { text: 'Edit Quest' });
+    contentEl.createEl('h3', { text: '✏️ Edit Quest' });
 
-    const nameLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Name' });
     const nameInput = contentEl.createEl('input', {
       type: 'text',
       value: this.quest.name,
-      cls: 'quest-input'
+      cls: 'quest-input',
+      placeholder: 'Quest name'
     });
 
-    const catLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Category' });
-    const catInput = contentEl.createEl('input', {
+    const row1 = contentEl.createDiv({ cls: 'modal-row' });
+
+    const catInput = row1.createEl('input', {
       type: 'text',
       value: this.quest.category,
-      cls: 'quest-input'
+      cls: 'quest-input quest-input--inline',
+      placeholder: 'Category'
     });
 
-    const schedLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Schedule' });
-    const schedInput = contentEl.createEl('input', {
+    const schedInput = row1.createEl('input', {
       type: 'text',
       value: this.quest.schedule,
-      cls: 'quest-input',
-      placeholder: 'daily, weekdays, M,W,F, etc.'
+      cls: 'quest-input quest-input--inline',
+      placeholder: 'Schedule (e.g., daily, M,W,F)'
     });
 
-    const estLabel = contentEl.createDiv({ cls: 'modal-label', text: 'Estimate (minutes)' });
-    const estInput = contentEl.createEl('input', {
+    const row2 = contentEl.createDiv({ cls: 'modal-row' });
+
+    const estInput = row2.createEl('input', {
       type: 'number',
       value: this.quest.estimateMinutes || '',
-      cls: 'quest-input',
-      placeholder: 'Optional'
+      cls: 'quest-input quest-input--inline',
+      placeholder: 'Estimate (minutes)'
     });
 
-    const btnRow = contentEl.createDiv({ cls: 'modal-button-container' });
+    const btnRow = contentEl.createDiv({ cls: 'modal-buttons' });
 
-    const cancelBtn = btnRow.createEl('button', { text: 'Cancel' });
+    const cancelBtn = btnRow.createEl('button', { text: 'Cancel', cls: 'btn-secondary' });
     cancelBtn.addEventListener('click', () => this.close());
 
-    const saveBtn = btnRow.createEl('button', { text: 'Save Changes', cls: 'btn-primary' });
+    const saveBtn = btnRow.createEl('button', { text: 'Save', cls: 'btn-primary' });
     saveBtn.addEventListener('click', async () => {
-      const updated = {
-        name: nameInput.value.trim(),
-        category: catInput.value.trim() || 'Uncategorized',
-        schedule: schedInput.value.trim() || 'daily',
-        estimateMinutes: estInput.value ? parseInt(estInput.value) : null
-      };
-
-      if (!updated.name) {
-        new Notice('❌ Quest name cannot be empty');
+      const name = nameInput.value.trim();
+      if (!name) {
+        new Notice('❌ Quest name required');
         return;
       }
 
-      await this.onSave(updated);
+      await this.onSave({
+        name,
+        category: catInput.value.trim() || 'Uncategorized',
+        schedule: schedInput.value.trim() || 'daily',
+        estimateMinutes: estInput.value ? parseInt(estInput.value) : null
+      });
+
       this.close();
     });
+
+    setTimeout(() => nameInput.focus(), 50);
   }
 
   onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
+    this.contentEl.empty();
   }
 }
 
@@ -1258,9 +1267,9 @@ class ConfirmModal extends Modal {
     contentEl.createEl('h2', { text: this.title });
     contentEl.createEl('p', { text: this.message, cls: 'modal-confirm-text' });
 
-    const btnContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+    const btnContainer = contentEl.createDiv({ cls: 'modal-buttons' });
 
-    const cancelBtn = btnContainer.createEl('button', { text: 'Cancel' });
+    const cancelBtn = btnContainer.createEl('button', { text: 'Cancel', cls: 'btn-secondary' });
     cancelBtn.addEventListener('click', () => {
       this.close();
       this.onConfirm(false);
@@ -1274,8 +1283,7 @@ class ConfirmModal extends Modal {
   }
 
   onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
+    this.contentEl.empty();
   }
 }
 
