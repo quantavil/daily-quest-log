@@ -45,8 +45,6 @@ const RANKS = [
 ];
 
 const RANK_FOR = (lvl) => RANKS.find((r) => lvl >= r.minLevel && lvl <= r.maxLevel) || RANKS[RANKS.length - 1];
-const DAY_MAP = { sun: 0, mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6 };
-const DAY_LETTERS = { u: 0, m: 1, t: 2, w: 3, r: 4, f: 5, s: 6 };
 
 /* ========================================================================== */
 /* UTILITIES                                                                  */
@@ -70,6 +68,78 @@ const formatTime = (minutes) => {
   if (m) return `${m}m ${s}s`;
   return `${s}s`;
 };
+
+/* ========================================================================== */
+/* SCHEDULE UTILS — centralized                                               */
+/* ========================================================================== */
+
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // Date.getDay(): 0=Sun..6=Sat
+const DAY_TO_INDEX = Object.fromEntries(DAY_KEYS.map((k, i) => [k, i]));
+const MON_FIRST_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+function parseSchedule(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s || s === 'daily') return { kind: 'daily', days: new Set(DAY_KEYS) };
+  if (s === 'weekdays') return { kind: 'weekdays', days: new Set(['mon', 'tue', 'wed', 'thu', 'fri']) };
+  if (s === 'weekends') return { kind: 'weekends', days: new Set(['sat', 'sun']) };
+
+  // Accept YYYY-MM-DD or DD-MM-YYYY for specific date schedules
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return { kind: 'date', date: toLocalYMD(d), days: new Set([DAY_KEYS[d.getDay()]]) };
+  }
+  m = s.match(/^(\d{2})-((\d{2}))-(\d{4})$/); // keep dd-mm-yyyy compatibility
+  if (m) {
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return { kind: 'date', date: toLocalYMD(d), days: new Set([DAY_KEYS[d.getDay()]]) };
+  }
+
+  const tokens = s.split(/[\s,]+/).filter(Boolean);
+  const days = new Set();
+  const isKey = (k) => Object.prototype.hasOwnProperty.call(DAY_TO_INDEX, k);
+  for (const tok of tokens) {
+    if (tok.includes('-')) {
+      const [a, b] = tok.split('-');
+      if (isKey(a) && isKey(b)) {
+        const ai = DAY_TO_INDEX[a], bi = DAY_TO_INDEX[b];
+        for (let i = 0; i < 7; i++) {
+          const idx = (ai + i) % 7;
+          days.add(DAY_KEYS[idx]);
+          if (idx === bi) break;
+        }
+      }
+    } else if (isKey(tok)) {
+      days.add(tok);
+    }
+  }
+  return { kind: 'days', days };
+}
+
+function isScheduledOnDate(schedule, date = new Date()) {
+  const parsed = parseSchedule(schedule);
+  if (parsed.kind === 'daily') return true;
+  if (parsed.kind === 'weekdays') { const d = date.getDay(); return d >= 1 && d <= 5; }
+  if (parsed.kind === 'weekends') { const d = date.getDay(); return d === 0 || d === 6; }
+  if (parsed.kind === 'date') return parsed.date === toLocalYMD(date);
+  const todayKey = DAY_KEYS[date.getDay()];
+  return parsed.days.has(todayKey);
+}
+
+function parseSelectedDaysFromSchedule(schedule) {
+  return new Set(parseSchedule(schedule).days);
+}
+
+function selectedDaysToSchedule(selectedDays) {
+  const set = new Set(selectedDays || []);
+  if (set.size === 7) return 'daily';
+  const weekdays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const weekends = ['sat', 'sun'];
+  if (weekdays.every((d) => set.has(d)) && weekends.every((d) => !set.has(d))) return 'weekdays';
+  if (weekends.every((d) => set.has(d)) && weekdays.every((d) => !set.has(d))) return 'weekends';
+  const arr = Array.from(set).sort((a, b) => MON_FIRST_ORDER.indexOf(a) - MON_FIRST_ORDER.indexOf(b));
+  return arr.join(',');
+}
 
 /* ========================================================================== */
 /* MAIN PLUGIN                                                                */
@@ -214,42 +284,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   getTodayQuests() { return this.getActiveQuests().filter((q) => this.isScheduledToday(q.schedule)); }
   getOtherQuests() { return this.getActiveQuests().filter((q) => !this.isScheduledToday(q.schedule)); }
 
-  isScheduledToday(schedule) {
-    if (!schedule) return false;
-    const now = new Date(), today = now.getDay(), s = String(schedule).trim().toLowerCase();
-    if (s === 'daily') return true;
-    if (s === 'weekdays') return today >= 1 && today <= 5;
-    if (s === 'weekends') return today === 0 || today === 6;
-
-    // specific date DD-MM-YYYY
-    const dm = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    if (dm) {
-      const [, d, m, y] = dm;
-      return toLocalYMD(new Date(Number(y), Number(m) - 1, Number(d))) === toLocalYMD(now);
-    }
-
-    // letters like MTWRF or M,W,F
-    const letters = s.match(/[mtwrfsu]/g);
-    if (letters?.some((l) => DAY_LETTERS[l] === today)) return true;
-
-    // tokens: mon, tue... or ranges mon-fri
-    const tokens = s.split(/[\s,]+/).filter(Boolean);
-    if (tokens.length) {
-      const idx = (tok) => DAY_MAP[tok];
-      for (const tok of tokens) {
-        if (tok.includes('-')) {
-          const [a, b] = tok.split('-'), ai = idx(a), bi = idx(b);
-          if (ai != null && bi != null) {
-            if (ai <= bi ? today >= ai && today <= bi : today >= ai || today <= bi) return true;
-          }
-        } else {
-          const di = idx(tok);
-          if (di != null && di === today) return true;
-        }
-      }
-    }
-    return false;
-  }
+  isScheduledToday(schedule) { return isScheduledOnDate(schedule, new Date()); }
 
   isCompletedToday(questId) {
     const t = todayStr();
@@ -819,7 +854,7 @@ class QuestView extends ItemView {
 
   openInlineAdd() {
     this.editingId = 'new';
-    this.editingDraft = { name: '', category: '', estimateMinutes: null, selectedDays: new Set(['M', 'T', 'W', 'R', 'F']) };
+    this.editingDraft = { name: '', category: '', estimateMinutes: null, selectedDays: new Set(['mon', 'tue', 'wed', 'thu', 'fri']) };
     this.render();
   }
 
@@ -829,7 +864,7 @@ class QuestView extends ItemView {
       name: quest.name,
       category: quest.category,
       estimateMinutes: quest.estimateMinutes ?? null,
-      selectedDays: this.parseSelectedDaysFromSchedule(quest.schedule || 'weekdays'),
+      selectedDays: parseSelectedDaysFromSchedule(quest.schedule || 'weekdays'),
     };
     this.render();
   }
@@ -849,7 +884,7 @@ class QuestView extends ItemView {
 
     const category = (this.editingDraft?.category || '').trim() || 'Uncategorized';
     const estimateMinutes = this.editingDraft?.estimateMinutes ?? null;
-    const schedule = this.selectedDaysToSchedule(this.editingDraft?.selectedDays || new Set(['M', 'T', 'W', 'R', 'F']));
+    const schedule = selectedDaysToSchedule(this.editingDraft?.selectedDays || new Set(['mon', 'tue', 'wed', 'thu', 'fri']));
 
     const editor = item.querySelector('.quest-editor');
     const apply = async () => {
@@ -897,20 +932,22 @@ class QuestView extends ItemView {
     scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
 
     const presetsInline = scheduleHeader.createDiv({ cls: 'schedule-presets-inline' });
-    const selectedDays = this.editingDraft?.selectedDays || this.parseSelectedDaysFromSchedule(draft.schedule || 'weekdays');
+    const selectedDays = this.editingDraft?.selectedDays || parseSelectedDaysFromSchedule(draft.schedule || 'weekdays');
     const applyPreset = (days) => { selectedDays.clear(); days.forEach((d) => selectedDays.add(d)); updateDayButtons(); };
 
-    [{ label: 'Daily', days: ['M', 'T', 'W', 'R', 'F', 'S', 'U'] },
-     { label: 'Weekdays', days: ['M', 'T', 'W', 'R', 'F'] },
-     { label: 'Weekends', days: ['S', 'U'] }].forEach((preset) => {
+    [
+      { label: 'Daily', days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
+      { label: 'Weekdays', days: ['mon', 'tue', 'wed', 'thu', 'fri'] },
+      { label: 'Weekends', days: ['sat', 'sun'] },
+    ].forEach((preset) => {
       const b = presetsInline.createEl('button', { text: preset.label, cls: 'preset-btn-inline', attr: { type: 'button' } });
       b.addEventListener('click', (e) => { e.preventDefault(); applyPreset(preset.days); });
     });
 
     const dayPicker = z2.createDiv({ cls: 'day-picker-beautiful' });
     const dayDefs = [
-      { key: 'M', label: 'MON' }, { key: 'T', label: 'TUE' }, { key: 'W', label: 'WED' },
-      { key: 'R', label: 'THU' }, { key: 'F', label: 'FRI' }, { key: 'S', label: 'SAT' }, { key: 'U', label: 'SUN' },
+      { key: 'mon', label: 'MON' }, { key: 'tue', label: 'TUE' }, { key: 'wed', label: 'WED' },
+      { key: 'thu', label: 'THU' }, { key: 'fri', label: 'FRI' }, { key: 'sat', label: 'SAT' }, { key: 'sun', label: 'SUN' },
     ];
     const btns = [];
     dayDefs.forEach((d) => {
@@ -948,40 +985,6 @@ class QuestView extends ItemView {
     }));
 
     this.animateExpand(editor);
-  }
-
-  parseSelectedDaysFromSchedule(schedule) {
-    const set = (arr) => new Set(arr);
-    const s = String(schedule || '').toLowerCase().trim();
-    if (!s || s === 'daily') return set(['M', 'T', 'W', 'R', 'F', 'S', 'U']);
-    if (s === 'weekdays') return set(['M', 'T', 'W', 'R', 'F']);
-    if (s === 'weekends') return set(['S', 'U']);
-
-    if (/^[mtwrfsu, ]+$/.test(s)) return set([...(s.match(/[mtwrfsu]/g) || []).map((x) => x.toUpperCase())]);
-
-    const map = { sun: 'U', mon: 'M', tue: 'T', tues: 'T', wed: 'W', thu: 'R', thur: 'R', thurs: 'R', fri: 'F', sat: 'S' };
-    const parts = s.split(/[\s,]+/).filter(Boolean);
-    const col = new Set(); const order = ['U', 'M', 'T', 'W', 'R', 'F', 'S'];
-    for (const p of parts) {
-      if (map[p]) col.add(map[p]);
-      else if (p.includes('-')) {
-        const [a, b] = p.split('-'), am = map[a], bm = map[b];
-        if (am && bm) {
-          let ai = order.indexOf(am), bi = order.indexOf(bm);
-          for (let i = 0; i < 7; i++) { const idx = (ai + i) % 7; col.add(order[idx]); if (idx === bi) break; }
-        }
-      }
-    }
-    return col.size ? col : set(['M', 'T', 'W', 'R', 'F']);
-  }
-
-  selectedDaysToSchedule(selectedDays) {
-    const order = ['M', 'T', 'W', 'R', 'F', 'S', 'U'];
-    const arr = Array.from(selectedDays).sort((a, b) => order.indexOf(a) - order.indexOf(b));
-    if (arr.length === 7) return 'daily';
-    if (arr.length === 5 && !arr.includes('S') && !arr.includes('U')) return 'weekdays';
-    if (arr.length === 2 && arr.includes('S') && arr.includes('U')) return 'weekends';
-    return arr.join('');
   }
 
   animateExpand(el) {
