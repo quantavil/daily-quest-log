@@ -68,7 +68,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: var(--space-lg);
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .header-left h2 {
@@ -79,6 +79,22 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.header-left-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.quest-total-remaining {
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+  display: block;
+  margin-bottom: 2px;
 }
 
 .header-right {
@@ -120,31 +136,23 @@
   color: var(--danger);
 }
 
-.header-rank-box {
+.header-rank-display {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-sm);
-  padding: 6px var(--space-md);
-  background: rgba(0, 217, 255, 0.08);
-  border: 1px solid rgba(0, 217, 255, 0.2);
-  border-radius: var(--radius-md);
-  font-size: 0.8rem;
+  gap: 2px;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
-.header-rank-box .rank-icon {
-  font-size: 1.2rem;
+.header-rank-display .rank-icon {
+  font-size: 3rem;
 }
 
-.header-rank-box .rank-name {
+.header-rank-display .rank-name {
   letter-spacing: 0.5px;
-  font-size: 0.75rem;
-}
-
-.header-rank-box .rank-level {
+  font-size: 0.6rem;
   color: var(--text-secondary);
-  font-size: 0.7rem;
-  margin-left: 4px;
 }
 
 .quest-view-stats {

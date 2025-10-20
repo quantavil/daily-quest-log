@@ -526,27 +526,19 @@ class QuestView extends ItemView {
   }
 
   updateHeaderTimer() {
-    const { activeQuestId } = this.plugin.questLog.timerState;
-    const timerEl = this.contentEl.querySelector('.header-active-timer');
-    if (!timerEl) return;
-    
-    if (activeQuestId) {
-      const quest = this.plugin.questLog.quests.find(q => q.id === activeQuestId);
-      const totalMinutes = this.plugin.getTotalMinutes(activeQuestId);
-      const remaining = quest?.estimateMinutes ? quest.estimateMinutes - totalMinutes : null;
-      
-      if (remaining !== null) {
-        const absText = formatTime(Math.abs(remaining));
-        timerEl.textContent = remaining >= 0 ? absText : `-${absText}`;
-        timerEl.className = remaining >= 0 ? 'header-active-timer' : 'header-active-timer header-active-timer--overtime';
-      } else {
-        timerEl.textContent = formatTime(totalMinutes);
-        timerEl.className = 'header-active-timer';
+    const totalRemainingSpan = this.contentEl.querySelector('.quest-total-remaining');
+    if (!totalRemainingSpan) return;
+
+    const todayQuests = this.plugin.getTodayQuests();
+    const unfinished = todayQuests.filter(q => !this.plugin.isCompletedToday(q.id));
+    let totalRemaining = 0;
+    for (const q of unfinished) {
+      if (q.estimateMinutes && q.estimateMinutes > 0) {
+        const spent = this.plugin.getTotalMinutes(q.id);
+        totalRemaining += Math.max(0, q.estimateMinutes - spent);
       }
-    } else {
-      timerEl.textContent = '—';
-      timerEl.className = 'header-active-timer header-active-timer--idle';
     }
+    totalRemainingSpan.textContent = formatTime(totalRemaining);
   }
 
   async render() {
@@ -565,21 +557,23 @@ class QuestView extends ItemView {
     const top = header.createDiv({ cls: 'quest-header-top' });
     
     const leftSide = top.createDiv({ cls: 'header-left' });
-    leftSide.createEl('h2', { text: "Today's Quests" });
+    const leftInner = leftSide.createDiv({ cls: 'header-left-inner' });
+    leftInner.createEl('h2', { text: "Today's Quests" });
     
     const rightSide = top.createDiv({ cls: 'header-right' });
-    const timerBox = rightSide.createDiv({ cls: 'header-timer-box' });
-    timerBox.createDiv({ cls: 'header-timer-label', text: 'Active Timer' });
-    const timerValue = timerBox.createDiv({ cls: 'header-active-timer header-active-timer--idle', text: '—' });
-    
-    const rankBox = rightSide.createDiv({ cls: 'header-rank-box' });
-    rankBox.innerHTML = `<span class="rank-icon">${rank.icon}</span><span class="rank-name" style="color:${rank.color}">${rank.name.toUpperCase()}</span><span class="rank-level">Level ${player.level}</span>`;
+
+    const totalRemainingSpan = rightSide.createEl('span', { text: '—', cls: 'quest-total-remaining' });
+
+    // Rank display without box
+    const rankDisplay = rightSide.createDiv({ cls: 'header-rank-display' });
+    rankDisplay.innerHTML = `<div class="rank-icon" style="font-size: 3rem; text-shadow: 0 0 20px ${rank.color}">${rank.icon}</div><div class="rank-name" style="color:${rank.color}; font-size: 0.6rem">${rank.name.toUpperCase()}</div>`;
 
     const todayQuests = this.plugin.getTodayQuests();
     const completedCount = todayQuests.filter(q => this.plugin.isCompletedToday(q.id)).length;
     const totalCount = todayQuests.length;
 
     const stats = header.createDiv({ cls: 'quest-view-stats' });
+    stats.createEl('span', { text: `Lvl ${player.level}` });
     stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
     stats.createEl('span', { text: `${completedCount}/${totalCount} Completed`, cls: 'quest-completion-stat' });
 
