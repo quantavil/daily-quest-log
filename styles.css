@@ -1,5 +1,5 @@
 /* ============================================================================
-   DAILY QUEST LOG — Optimized CSS
+   DAILY QUEST LOG — Optimized CSS (with header/rank + full-width stats fixes)
    ============================================================================ */
 
 :root{
@@ -12,6 +12,8 @@
   --radius-sm:6px; --radius-md:8px; --radius-lg:10px;
   --space-xs:4px; --space-sm:8px; --space-md:12px; --space-lg:16px; --space-xl:24px;
   --grad-135:linear-gradient(135deg,var(--brand-cyan),var(--brand-purple));
+  /* Width reserved for rank block in the top row only */
+  --rank-block-width:132px;
 }
 
 /* Container */
@@ -24,21 +26,47 @@
 .quest-view-header{
   margin-bottom:var(--space-lg); padding:var(--space-lg); background:var(--bg-elevated);
   border:1px solid var(--border); border-left:3px solid var(--brand-cyan); border-radius:var(--radius-lg);
+  position:relative;
+  /* Important: do NOT reserve the rank width on the whole header, so stats can use full width */
+  padding-right:var(--space-lg);
 }
-.quest-header-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:var(--space-lg); margin-bottom:var(--space-sm); }
+.quest-header-top{
+  display:flex; justify-content:flex-start; align-items:flex-start; gap:var(--space-lg); margin-bottom:var(--space-sm);
+  /* Reserve space for the rank block only on this first row */
+  padding-right:calc(var(--space-lg) + var(--rank-block-width));
+}
 .header-left h2{
   margin:0; font-size:1.75rem; font-weight:700;
   background:linear-gradient(135deg,var(--brand-cyan),var(--brand-purple));
   -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
 }
-.quest-total-remaining{ font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:.75rem; color:var(--text-muted); text-align:right; display:block; margin-bottom:2px; }
-.header-right{ display:flex; flex-direction:column; align-items:flex-end; gap:var(--space-sm); }
+.quest-total-remaining{
+  font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:.75rem; color:var(--text-muted);
+  text-align:right; display:block; margin-bottom:2px;
+}
+/* Tall rank block — out of normal flow so it doesn't stretch the first row */
+.header-right{
+  position:absolute; top:var(--space-lg); right:var(--space-lg);
+  width:var(--rank-block-width);
+  display:flex; flex-direction:column; align-items:flex-end; gap:var(--space-sm);
+  z-index:2;
+  /* In case of any overlap at narrow widths, make clicks pass through */
+  pointer-events:none;
+}
 
 .header-rank-display{ display:flex; flex-direction:column; align-items:center; gap:2px; font-size:.9rem; font-weight:700; }
 .header-rank-display .rank-icon{ font-size:3rem; }
 .header-rank-display .rank-name{ letter-spacing:.5px; font-size:.6rem; color:var(--text-secondary); }
 
-.quest-view-stats{ display:flex; gap:var(--space-sm); margin-bottom:var(--space-md); flex-wrap:wrap; align-items:center; }
+/* Stats row — full width, wraps when needed */
+.quest-view-stats{
+  width:100%;
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--space-sm);
+  align-items:center;
+}
+.quest-view-stats > *{ flex:0 1 auto; margin-top: 4px;}
 .quest-view-stats span{
   padding:6px var(--space-md); background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-sm);
   font-size:.8125rem; font-weight:600; color:var(--text-secondary); transition:all 150ms;
@@ -53,7 +81,10 @@
 .btn-add-header:hover{ transform:translateY(-1px); filter:brightness(1.1); }
 .btn-add-header:focus-visible{ outline:none; box-shadow:var(--focus-ring); }
 
-.quest-xp-bar{ width:100%; height:10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; position:relative; }
+.quest-xp-bar{
+  width:100%; height:10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-md);
+  overflow:hidden; position:relative;
+}
 .quest-xp-fill{ height:100%; background:linear-gradient(90deg,var(--brand-cyan),var(--brand-purple)); transition:width .6s ease; position:relative; }
 
 /* Sections */
@@ -251,8 +282,10 @@
 /* Responsive */
 @media (max-width:768px){
   .quest-view-container{ padding:var(--space-lg); }
-  .quest-header-top{ flex-direction:column; align-items:stretch; }
-  .header-right{ align-items:stretch; }
+  .quest-header-top{ flex-direction:column; align-items:stretch; padding-right:0; }
+  /* Revert the rank block to normal flow on mobile */
+  .header-right{ position:static; width:auto; align-items:stretch; z-index:auto; pointer-events:auto; }
+  .quest-view-header{ padding-right:var(--space-lg); }
   .form-row-two-col{ grid-template-columns:1fr; }
   .schedule-header{ flex-direction:column; align-items:stretch; }
   .quest-item{ grid-template-columns:auto auto 1fr; }
