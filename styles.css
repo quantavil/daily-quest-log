@@ -1,7 +1,8 @@
-/* Daily Quest Log – Optimized UI Styles
-   - Reduced duplication, improved a11y and focus states
-   - Better contrast, lighter shadows, cleaner spacing
-   - Responsive and reduced-motion friendly
+/* Daily Quest Log – Optimized UI Styles (Inline Accordion Edition)
+   - Inline Add/Edit accordion (no modal)
+   - A11y-friendly focus states
+   - Compact form controls for inline editor
+   - Responsive and reduced-motion support
 */
 
 /* ========================================================================== */
@@ -322,11 +323,10 @@
 .btn-secondary,
 .btn-danger,
 .btn-add-header,
-.btn-delete-beautiful,
-.btn-cancel-beautiful,
-.btn-save-beautiful,
 .preset-btn-inline,
-.day-btn-beautiful {
+.day-btn-beautiful,
+.btn-cancel-beautiful,
+.btn-save-beautiful {
   font-family: inherit;
   border-radius: var(--radius-sm);
   transition: .2s;
@@ -386,6 +386,32 @@
 .btn-danger:hover { filter: brightness(1.05); }
 .btn-danger:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(252, 129, 129, .35); }
 
+.btn-cancel-beautiful {
+  padding: 9px 14px; background: transparent; border: 1px solid var(--border);
+  color: var(--text-muted); font-weight: 700;
+}
+.btn-cancel-beautiful:hover { border-color: var(--text-muted); color: var(--text); background: rgba(255,255,255,.03); }
+.btn-cancel-beautiful:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.btn-save-beautiful {
+  padding: 10px 18px; border: 0; color: #fff; font-weight: 800;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  box-shadow: 0 4px 12px rgba(0, 229, 255, .25);
+}
+.btn-save-beautiful:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,229,255,.38); filter: brightness(1.06); }
+.btn-save-beautiful:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* Preset buttons for schedule */
+.preset-btn-inline {
+  padding: 4px 10px; background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted); font-weight: 700; font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .3px; border-radius: 12px; cursor: pointer;
+}
+.preset-btn-inline:hover { border-color: var(--text-muted); color: var(--text); background: rgba(255,255,255,.03); }
+.preset-btn-inline:active { transform: scale(.98); }
+.preset-btn-inline:focus-visible { outline: none; box-shadow: var(--ring); }
+
 /* ========================================================================== */
 /* COMPLETED SECTION                                                          */
 /* ========================================================================== */
@@ -419,8 +445,11 @@
   justify-content: center;
 }
 
+/* Generic utility used by inline editor actions */
+.footer-right { display: flex; gap: 10px; margin-left: auto; }
+
 /* ========================================================================== */
-/* MODAL (kept: confirm only)                                                 */
+/* CONFIRM MODAL (delete/reset confirmations)                                 */
 /* ========================================================================== */
 
 .modal-confirm-text { margin: 10px 0 18px; line-height: 1.6; color: var(--text-muted); font-size: .95rem; }
@@ -449,6 +478,134 @@
   border-radius: 5px; box-shadow: var(--glow) rgba(0,229,255,.2);
 }
 .quest-view-container::-webkit-scrollbar-thumb:hover { box-shadow: var(--glow) rgba(0,229,255,.38); }
+
+/* ========================================================================== */
+/* FORM ELEMENTS FOR INLINE EDITOR                                            */
+/* ========================================================================== */
+
+.form-group-compact { margin-bottom: 12px; }
+
+.form-label-compact,
+.form-label-schedule {
+  display: block; margin-bottom: 6px;
+  font-size: .78rem; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .8px;
+}
+
+.form-input-beautiful {
+  width: 100%; padding: 9px 12px; box-sizing: border-box;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: .95rem;
+  transition: .15s;
+}
+.form-input-beautiful:hover { border-color: rgba(255,255,255,.15); }
+.form-input-beautiful:focus-visible { outline: none; border-color: var(--text-muted); background: var(--bg); box-shadow: var(--ring); }
+.form-input-beautiful::placeholder { color: #6b6b80; }
+.form-input-beautiful.input-error { border-color: var(--red); animation: shake .28s; }
+
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.form-row-two-col { display: grid; grid-template-columns: 1fr 140px; gap: 10px; margin-bottom: 12px; }
+
+.form-separator {
+  height: 1px; background: var(--border);
+  margin: 16px 0 16px; position: relative;
+}
+.form-separator::before {
+  content: '•••'; position: absolute; inset: 0;
+  width: max-content; height: max-content; margin: auto;
+  padding: 0 10px; background: var(--bg);
+  color: var(--border); font-size: .72rem; letter-spacing: 3px;
+}
+
+/* Schedule controls */
+.schedule-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+.schedule-presets-inline { display: flex; gap: 6px; }
+
+.day-picker-beautiful { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 2px; }
+
+.day-btn-beautiful {
+  padding: 10px 0;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
+}
+.day-btn-beautiful::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  opacity: 0; transition: opacity .15s;
+}
+.day-btn-beautiful:hover { border-color: rgba(255,255,255,.22); transform: translateY(-1px); }
+.day-btn-beautiful:hover::before { opacity: .06; }
+.day-btn-beautiful.active {
+  background: linear-gradient(135deg, rgba(0,229,255,.14), rgba(183,148,246,.14));
+  border-color: rgba(0,229,255,.42); color: var(--text);
+  box-shadow: 0 4px 12px rgba(0,229,255,.14); transform: translateY(-1px);
+}
+.day-btn-beautiful.active::before { opacity: .1; }
+.day-btn-beautiful:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.day-content { display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; z-index: 1; }
+.day-letter { font-size: 1.05rem; font-weight: 800; line-height: 1; }
+.day-name { font-size: .7rem; font-weight: 600; opacity: .8; text-transform: uppercase; letter-spacing: .45px; }
+.day-btn-beautiful.active .day-letter { color: var(--cyan); }
+.day-btn-beautiful.active .day-name { opacity: 1; }
+
+/* ========================================================================== */
+/* INLINE ACCORDION EDITOR PATCH                                              */
+/* ========================================================================== */
+
+.quest-item--editing {
+  border-color: var(--cyan);
+  box-shadow: var(--glow) rgba(0, 229, 255, .2);
+}
+.quest-item--editing .quest-controls,
+.quest-item--editing .quest-drag-handle {
+  opacity: .35;
+}
+.quest-item--editing .quest-checkbox {
+  opacity: .6;
+}
+
+.quest-editor {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  max-height: 0; /* animated via JS to open/close */
+  border-top: 1px dashed var(--border);
+  margin-top: 8px;
+  padding-top: 0;
+}
+
+.quest-editor__zone {
+  padding-top: 12px;
+}
+.quest-editor__zone.zone1 { padding-top: 10px; }
+.quest-editor__zone.zone2 { padding-top: 10px; }
+.quest-editor__zone.zone3 {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.quest-editor .form-input-beautiful {
+  background: var(--bg);
+}
+.quest-editor .schedule-header {
+  margin-bottom: 8px;
+}
+.quest-item--new .quest-name {
+  opacity: .8;
+}
 
 /* ========================================================================== */
 /* RESPONSIVE                                                                 */
@@ -480,51 +637,4 @@
   .quest-item, .quest-view-header, .quest-completed-item, .form-input-beautiful {
     border-color: #4a4a66;
   }
-}
-
-/* ========================================================================== */
-/* INLINE ACCORDION EDITOR PATCH                                              */
-/* ========================================================================== */
-
-.quest-item--editing {
-  border-color: var(--cyan);
-  box-shadow: var(--glow) rgba(0, 229, 255, .2);
-}
-.quest-item--editing .quest-controls,
-.quest-item--editing .quest-drag-handle {
-  opacity: .35;
-}
-.quest-item--editing .quest-checkbox {
-  opacity: .6;
-}
-
-.quest-editor {
-  grid-column: 1 / -1;
-  overflow: hidden;
-  max-height: 0; /* animated via JS to open */
-  border-top: 1px dashed var(--border);
-  margin-top: 8px;
-  padding-top: 0;
-}
-
-.quest-editor__zone {
-  padding-top: 12px;
-}
-.quest-editor__zone.zone1 { padding-top: 10px; }
-.quest-editor__zone.zone2 { padding-top: 10px; }
-.quest-editor__zone.zone3 {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding-top: 14px;
-}
-
-.quest-editor .form-input-beautiful {
-  background: var(--bg);
-}
-.quest-editor .schedule-header {
-  margin-bottom: 8px;
-}
-.quest-item--new .quest-name {
-  opacity: .8;
 }
