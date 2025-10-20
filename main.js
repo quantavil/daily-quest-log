@@ -1,5 +1,6 @@
 /**
  * Daily Quest Log - Pure JSON Implementation (Refactored + Optimized)
+ * - Inline Add/Edit accordion (no modal)
  * - Fixes local date/rollover bugs
  * - Safer ribbon label handling
  * - More robust scheduling parser
@@ -94,7 +95,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     this.registerView(VIEW_TYPE_QUESTS, (leaf) => new QuestView(leaf, this));
 
-    // Keep a reference to ribbon element (avoid fragile querySelector)
+    // Ribbon
     this.ribbonEl = this.addRibbonIcon('target', 'Quest Log', () => this.activateView());
     this.updateRibbonLabel();
 
@@ -217,7 +218,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   // Stable reorder across all quests (renormalize to avoid duplicates)
   async reorderQuests(questIds, category) {
     const list = this.questLog.quests.filter(q => !q.archived);
-    // Reassign orders for ids within this category, then renormalize all
     const base = Math.min(...list.filter(q => q.category === category).map(q => q.order ?? 0), 0);
     questIds.forEach((id, i) => { const q = list.find(x => x.id === id); if (q) q.order = base + i; });
     list.sort((a,b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q,i) => q.order = i);
@@ -243,11 +243,11 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       return toLocalYMD(t) === toLocalYMD(now);
     }
 
-    // letter days like M,W,F or T,R (case-insensitive)
+    // letter days like M,W,F or T,R
     const letters = s.match(/[mtwrfsu]/g);
     if (letters?.some(l => DAY_LETTERS[l] === today)) return true;
 
-    // tokens: sun, mon, tue, wed, thu, fri, sat or ranges: mon-fri, fri-mon
+    // tokens: sun, mon, tue... or ranges: mon-fri
     const tokens = s.split(/[\s,]+/).filter(Boolean);
     if (tokens.length) {
       const idx = (tok) => DAY_MAP[tok];
@@ -494,7 +494,7 @@ ${stats.last30Days.slice().reverse().map(d => `| ${d.date} | ${d.count} | ${d.xp
 };
 
 // ============================================================================
-// QUEST VIEW
+// QUEST VIEW (inline Add/Edit accordion)
 // ============================================================================
 class QuestView extends ItemView {
   constructor(leaf, plugin) {
@@ -502,6 +502,10 @@ class QuestView extends ItemView {
     this.plugin = plugin;
     this.timerHandle = null;
     this.domIndex = new Map();
+
+    // Inline editor state
+    this.editingId = null;      // 'new' or quest.id
+    this.editingDraft = null;   // { name, category, estimateMinutes, selectedDays: Set }
   }
 
   getViewType() { return VIEW_TYPE_QUESTS; }
@@ -552,10 +556,25 @@ class QuestView extends ItemView {
     stats.createEl('span', { text: `${completedCount}/${totalCount} Quests`, cls: 'quest-completion-stat' });
 
     const addBtn = stats.createEl('button', { text: '➕ Add Quest', cls: 'btn-add-header' });
-    addBtn.type = 'button'; addBtn.setAttribute('aria-label', 'Add Quest'); addBtn.addEventListener('click', () => this.openAddQuestModal());
+    addBtn.type = 'button'; addBtn.setAttribute('aria-label', 'Add Quest'); addBtn.addEventListener('click', () => this.openInlineAdd());
 
     const xpBar = header.createDiv({ cls: 'quest-xp-bar' });
     xpBar.createDiv({ cls: 'quest-xp-fill', attr: { style: `width:${xpPercent}%` } });
+
+    // Inline "new" card immediately below header
+    if (this.editingId === 'new') {
+      const newCardHost = container.createDiv();
+      const item = newCardHost.createDiv({ cls: 'quest-item quest-item--editing quest-item--new' });
+      const titleRow = item.createDiv({ cls: 'quest-info' });
+      titleRow.createDiv({ cls: 'quest-name', text: 'New Quest' });
+
+      this.attachInlineEditor(item, {
+        name: this.editingDraft?.name || '',
+        category: this.editingDraft?.category || '',
+        estimateMinutes: this.editingDraft?.estimateMinutes ?? null,
+        schedule: 'weekdays'
+      }, true);
+    }
 
     // Quests (group by category)
     const otherQuests = this.plugin.getOtherQuests();
@@ -610,6 +629,9 @@ class QuestView extends ItemView {
     if (locked) item.addClass('quest-item--locked');
     if (isCompleted) item.addClass('quest-item--completed');
 
+    const isEditing = this.editingId === quest.id;
+    if (isEditing) item.addClass('quest-item--editing');
+
     if (draggable && !locked) {
       const dragHandle = item.createDiv({ cls: 'quest-drag-handle', title: 'Drag to reorder' });
       dragHandle.innerHTML = '⋮⋮';
@@ -650,13 +672,22 @@ class QuestView extends ItemView {
 
     if (!locked) {
       const editBtn = this.iconBtn('edit', 'Edit');
-      editBtn.addEventListener('click', () => this.openEditModal(quest));
+      editBtn.addEventListener('click', () => this.openInlineEdit(quest));
       controls.appendChild(editBtn);
     }
 
     if (locked) {
       const lockOverlay = item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' });
       lockOverlay.innerHTML = '🔒';
+    }
+
+    if (isEditing) {
+      this.attachInlineEditor(item, {
+        name: quest.name,
+        category: quest.category,
+        estimateMinutes: quest.estimateMinutes ?? null,
+        schedule: quest.schedule || 'weekdays'
+      }, false);
     }
 
     this.domIndex.set(quest.id, { estimateEl, itemEl: item, quest });
@@ -749,12 +780,222 @@ class QuestView extends ItemView {
     }
   }
 
-  openAddQuestModal() {
-    new QuestModal(this.app, this.plugin, null, async (questData) => { await this.plugin.createQuest(questData); }).open();
+  // Inline Add/Edit entry points
+  openInlineAdd() {
+    this.editingId = 'new';
+    this.editingDraft = {
+      name: '',
+      category: '',
+      estimateMinutes: null,
+      selectedDays: new Set(['M','T','W','R','F'])
+    };
+    this.render();
   }
 
-  openEditModal(quest) {
-    new QuestModal(this.app, this.plugin, quest, async (updated) => { await this.plugin.updateQuest(quest.id, updated); }).open();
+  openInlineEdit(quest) {
+    this.editingId = quest.id;
+    this.editingDraft = {
+      name: quest.name,
+      category: quest.category,
+      estimateMinutes: quest.estimateMinutes ?? null,
+      selectedDays: this.parseSelectedDaysFromSchedule(quest.schedule || 'weekdays')
+    };
+    this.render();
+  }
+
+  // Inline editor: Zones (1) Name/Category/Time, (2) Day picker, (3) Save/Cancel
+  attachInlineEditor(item, draft, isNew) {
+    const editor = item.createDiv({ cls: 'quest-editor', attr: { 'aria-expanded': 'true' } });
+
+    // Zone 1
+    const z1 = editor.createDiv({ cls: 'quest-editor__zone zone1' });
+    const nameGroup = z1.createDiv({ cls: 'form-group-compact' });
+    nameGroup.createEl('label', { text: 'Quest Name', cls: 'form-label-compact' });
+    const nameInput = nameGroup.createEl('input', {
+      type: 'text',
+      value: this.editingDraft?.name ?? draft.name ?? '',
+      cls: 'form-input-beautiful',
+      attr: { placeholder: 'e.g., Morning Exercise' }
+    });
+
+    const row = z1.createDiv({ cls: 'form-row-two-col' });
+    const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
+    categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
+    const categoryInput = categoryGroup.createEl('input', {
+      type: 'text',
+      value: this.editingDraft?.category ?? draft.category ?? '',
+      cls: 'form-input-beautiful',
+      attr: { placeholder: 'e.g., Health' }
+    });
+
+    const estimateGroup = row.createDiv({ cls: 'form-group-compact' });
+    estimateGroup.createEl('label', { text: 'Time (min)', cls: 'form-label-compact' });
+    const estimateInput = estimateGroup.createEl('input', {
+      type: 'number',
+      value: (this.editingDraft?.estimateMinutes ?? draft.estimateMinutes) ?? '',
+      cls: 'form-input-beautiful',
+      attr: { placeholder: 'Optional' }
+    });
+
+    editor.createDiv({ cls: 'form-separator' });
+
+    // Zone 2
+    const z2 = editor.createDiv({ cls: 'quest-editor__zone zone2' });
+    const scheduleHeader = z2.createDiv({ cls: 'schedule-header' });
+    scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
+
+    const presetsInline = scheduleHeader.createDiv({ cls: 'schedule-presets-inline' });
+    const selectedDays = this.editingDraft?.selectedDays || this.parseSelectedDaysFromSchedule(draft.schedule || 'weekdays');
+
+    const applyPreset = (days) => { selectedDays.clear(); days.forEach(d => selectedDays.add(d)); updateDayButtons(); };
+
+    [
+      { label: 'Daily', days: ['M','T','W','R','F','S','U'] },
+      { label: 'Weekdays', days: ['M','T','W','R','F'] },
+      { label: 'Weekends', days: ['S','U'] }
+    ].forEach(preset => {
+      const b = presetsInline.createEl('button', { text: preset.label, cls: 'preset-btn-inline', attr: { type: 'button' } });
+      b.addEventListener('click', (e) => { e.preventDefault(); applyPreset(preset.days); });
+    });
+
+    const dayPicker = z2.createDiv({ cls: 'day-picker-beautiful' });
+    const dayDefs = [
+      { key: 'M', label: 'Mon', fullName: 'Monday' },
+      { key: 'T', label: 'Tue', fullName: 'Tuesday' },
+      { key: 'W', label: 'Wed', fullName: 'Wednesday' },
+      { key: 'R', label: 'Thu', fullName: 'Thursday' },
+      { key: 'F', label: 'Fri', fullName: 'Friday' },
+      { key: 'S', label: 'Sat', fullName: 'Saturday' },
+      { key: 'U', label: 'Sun', fullName: 'Sunday' }
+    ];
+    const btns = [];
+    dayDefs.forEach(d => {
+      const btn = dayPicker.createEl('button', {
+        cls: 'day-btn-beautiful',
+        attr: { 'data-day': d.key, type: 'button', title: d.fullName, 'aria-pressed': selectedDays.has(d.key) ? 'true' : 'false' }
+      });
+      const wrap = btn.createDiv({ cls: 'day-content' });
+      wrap.createEl('span', { text: d.key, cls: 'day-letter' });
+      wrap.createEl('span', { text: d.label, cls: 'day-name' });
+      if (selectedDays.has(d.key)) btn.addClass('active');
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (selectedDays.has(d.key)) selectedDays.delete(d.key); else selectedDays.add(d.key);
+        updateDayButtons();
+      });
+      btns.push({ btn, key: d.key });
+    });
+
+    const updateDayButtons = () => {
+      btns.forEach(({ btn, key }) => {
+        const active = selectedDays.has(key);
+        btn.toggleClass('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    };
+
+    // Zone 3
+    const z3 = editor.createDiv({ cls: 'quest-editor__zone zone3' });
+    const right = z3.createDiv({ cls: 'footer-right' });
+    const cancelBtn = right.createEl('button', { text: 'Cancel', cls: 'btn-cancel-beautiful', attr: { type: 'button' } });
+    const saveBtn = right.createEl('button', { text: isNew ? 'Create Quest' : 'Save Changes', cls: 'btn-save-beautiful', attr: { type: 'button' } });
+
+    const closeEditor = (animate = true, after = () => {}) => {
+      const done = () => { this.editingId = null; this.editingDraft = null; this.render(); after(); };
+      if (!animate) return done();
+      this.animateCollapse(editor, done);
+    };
+
+    const doSave = async () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        new Notice('❌ Quest name is required');
+        nameInput.focus();
+        nameInput.addClass('input-error');
+        setTimeout(() => nameInput.removeClass('input-error'), 1200);
+        return;
+      }
+      const category = (categoryInput.value || '').trim() || 'Uncategorized';
+      const estimateMinutes = estimateInput.value ? parseInt(estimateInput.value, 10) : null;
+      const schedule = this.selectedDaysToSchedule(selectedDays);
+
+      closeEditor(true, async () => {
+        if (isNew) {
+          await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
+        } else {
+          await this.plugin.updateQuest(item.dataset.questId, { name, category, schedule, estimateMinutes });
+        }
+      });
+    };
+
+    cancelBtn.addEventListener('click', () => closeEditor());
+    saveBtn.addEventListener('click', () => doSave());
+    [nameInput, categoryInput, estimateInput].forEach(inp => inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeEditor(); }
+    }));
+
+    // Animate open
+    this.animateExpand(editor);
+    setTimeout(() => nameInput.focus(), 40);
+  }
+
+  parseSelectedDaysFromSchedule(schedule) {
+    const set = (arr) => new Set(arr);
+    const s = String(schedule || '').toLowerCase().trim();
+    if (!s || s === 'daily') return set(['M','T','W','R','F','S','U']);
+    if (s === 'weekdays') return set(['M','T','W','R','F']);
+    if (s === 'weekends') return set(['S','U']);
+
+    if (/^[mtwrfsu, ]+$/.test(s)) {
+      const letters = (s.match(/[mtwrfsu]/g) || []).map(x => x.toUpperCase());
+      return set([...new Set(letters)]);
+    }
+
+    const map = { sun: 'U', mon: 'M', tue: 'T', tues: 'T', wed: 'W', thu: 'R', thur: 'R', thurs: 'R', fri: 'F', sat: 'S' };
+    const parts = s.split(/[\s,]+/).filter(Boolean);
+    const col = new Set();
+    const order = ['U','M','T','W','R','F','S'];
+    for (const p of parts) {
+      if (map[p]) col.add(map[p]);
+      else if (p.includes('-')) {
+        const [a, b] = p.split('-'); const am = map[a], bm = map[b];
+        if (am && bm) {
+          let ai = order.indexOf(am), bi = order.indexOf(bm);
+          for (let i = 0; i < 7; i++) { const idx = (ai + i) % 7; col.add(order[idx]); if (idx === bi) break; }
+        }
+      }
+    }
+    return col.size ? col : set(['M','T','W','R','F']);
+  }
+
+  selectedDaysToSchedule(selectedDays) {
+    const order = ['M','T','W','R','F','S','U'];
+    const arr = Array.from(selectedDays).sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+    if (arr.length === 7) return 'daily';
+    if (arr.length === 5 && !arr.includes('S') && !arr.includes('U')) return 'weekdays';
+    if (arr.length === 2 && arr.includes('S') && arr.includes('U')) return 'weekends';
+    return arr.join('');
+  }
+
+  animateExpand(el) {
+    el.style.overflow = 'hidden';
+    el.style.maxHeight = '0px';
+    el.style.transition = 'max-height 220ms ease';
+    requestAnimationFrame(() => {
+      el.style.maxHeight = el.scrollHeight + 'px';
+    });
+  }
+
+  animateCollapse(el, done) {
+    el.style.overflow = 'hidden';
+    el.style.transition = 'max-height 200ms ease';
+    el.style.maxHeight = el.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      el.style.maxHeight = '0px';
+    });
+    const fn = () => { el.removeEventListener('transitionend', fn); done && done(); };
+    el.addEventListener('transitionend', fn);
   }
 
   iconBtn(icon, title) {
@@ -774,178 +1015,7 @@ class QuestView extends ItemView {
 }
 
 // ============================================================================
-// UNIFIED QUEST MODAL (Add/Edit)
-// ============================================================================
-class QuestModal extends Modal {
-  constructor(app, plugin, quest, onSave) {
-    super(app);
-    this.plugin = plugin;
-    this.quest = quest;
-    this.onSave = onSave;
-    this.isEdit = !!quest;
-    this.selectedDays = new Set();
-    if (this.isEdit) this.parseSchedule(quest.schedule);
-    else this.selectedDays = new Set(['M', 'T', 'W', 'R', 'F']); // default Weekdays
-  }
-
-  // Robust schedule parsing into day buttons
-  parseSchedule(schedule) {
-    const set = (arr) => (this.selectedDays = new Set(arr));
-    const s = String(schedule || '').toLowerCase().trim();
-    if (s === 'daily') return set(['M','T','W','R','F','S','U']);
-    if (s === 'weekdays') return set(['M','T','W','R','F']);
-    if (s === 'weekends') return set(['S','U']);
-    const letters = s.match(/[mtwrfsu]/g);
-    if (letters?.length) return set([...new Set(letters.map(l => l.toUpperCase()))]);
-    const map = { sun: 'U', mon: 'M', tue: 'T', tues: 'T', wed: 'W', thu: 'R', thur: 'R', thurs: 'R', fri: 'F', sat: 'S' };
-    const parts = s.split(/[\s,]+/).filter(Boolean); const col = new Set();
-    for (const p of parts) {
-      if (map[p]) col.add(map[p]);
-      else if (p.includes('-')) {
-        const [a, b] = p.split('-'); const am = map[a], bm = map[b];
-        if (am && bm) {
-          const order = ['U','M','T','W','R','F','S'];
-          let ai = order.indexOf(am), bi = order.indexOf(bm);
-          for (let i = 0; i < 7; i++) { const idx = (ai + i) % 7; col.add(order[idx]); if (idx === bi) break; }
-        }
-      }
-    }
-    if (col.size) this.selectedDays = col; else set(['M','T','W','R','F','S','U']);
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass('quest-modal-beautiful');
-
-    // Header
-    const header = contentEl.createDiv({ cls: 'modal-header-beautiful' });
-    const headerContent = header.createDiv({ cls: 'modal-header-content' });
-    headerContent.createEl('div', { text: this.isEdit ? '✏️' : '✨', cls: 'modal-icon' });
-    const headerText = headerContent.createDiv({ cls: 'modal-header-text' });
-    headerText.createEl('h3', { text: this.isEdit ? 'Edit Quest' : 'New Quest' });
-    headerText.createEl('p', { text: this.isEdit ? 'Update your quest details' : 'Create a new quest to track', cls: 'modal-subtitle' });
-
-    // Form
-    const form = contentEl.createDiv({ cls: 'modal-form-beautiful' });
-
-    // Quest Name
-    const nameGroup = form.createDiv({ cls: 'form-group-compact' });
-    nameGroup.createEl('label', { text: 'Quest Name', cls: 'form-label-compact' });
-    const nameInput = nameGroup.createEl('input', { type: 'text', value: this.isEdit ? this.quest.name : '', cls: 'form-input-beautiful', placeholder: 'e.g., Morning Exercise, Read for 30min' });
-
-    // Two column layout
-    const row = form.createDiv({ cls: 'form-row-two-col' });
-    const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
-    categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
-    const categoryInput = categoryGroup.createEl('input', { type: 'text', value: this.isEdit ? this.quest.category : '', cls: 'form-input-beautiful', placeholder: 'e.g., Health, Work' });
-
-    const estimateGroup = row.createDiv({ cls: 'form-group-compact' });
-    estimateGroup.createEl('label', { text: 'Time (min)', cls: 'form-label-compact' });
-    const estimateInput = estimateGroup.createEl('input', { type: 'number', value: this.isEdit && this.quest.estimateMinutes ? this.quest.estimateMinutes : '', cls: 'form-input-beautiful', placeholder: 'Optional' });
-
-    form.createDiv({ cls: 'form-separator' });
-
-    // Schedule Days Section
-    const scheduleSection = form.createDiv({ cls: 'schedule-section' });
-    const scheduleHeader = scheduleSection.createDiv({ cls: 'schedule-header' });
-    scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
-
-    const presetsInline = scheduleHeader.createDiv({ cls: 'schedule-presets-inline' });
-    [
-      { label: 'Daily', days: ['M','T','W','R','F','S','U'] },
-      { label: 'Weekdays', days: ['M','T','W','R','F'] },
-      { label: 'Weekends', days: ['S','U'] }
-    ].forEach(preset => {
-      const b = presetsInline.createEl('button', { text: preset.label, cls: 'preset-btn-inline', attr: { type: 'button' } });
-      b.addEventListener('click', (e) => { e.preventDefault(); this.selectedDays = new Set(preset.days); this.updateDayButtons(); });
-    });
-
-    const dayPicker = scheduleSection.createDiv({ cls: 'day-picker-beautiful' });
-    const days = [
-      { key: 'M', label: 'Tue', fullName: 'Monday' }, 
-      { key: 'T', label: 'Tue', fullName: 'Tuesday' },
-      { key: 'W', label: 'Wed', fullName: 'Wednesday' },
-      { key: 'R', label: 'Thu', fullName: 'Thursday' },
-      { key: 'F', label: 'Fri', fullName: 'Friday' },
-      { key: 'S', label: 'Sat', fullName: 'Saturday' },
-      { key: 'U', label: 'Sun', fullName: 'Sunday' }
-    ];
-    // Correct Monday label (typo fix)
-    days[0].label = 'Mon';
-
-    this.dayButtons = [];
-    days.forEach(day => {
-      const dayBtn = dayPicker.createEl('button', { cls: 'day-btn-beautiful', attr: { 'data-day': day.key, type: 'button', title: day.fullName, 'aria-pressed': this.selectedDays.has(day.key) ? 'true' : 'false' } });
-      const dayLabel = dayBtn.createDiv({ cls: 'day-content' });
-      dayLabel.createEl('span', { text: day.key, cls: 'day-letter' });
-      dayLabel.createEl('span', { text: day.label, cls: 'day-name' });
-      if (this.selectedDays.has(day.key)) dayBtn.addClass('active');
-      this.dayButtons.push({ btn: dayBtn, key: day.key });
-      dayBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (this.selectedDays.has(day.key)) this.selectedDays.delete(day.key);
-        else this.selectedDays.add(day.key);
-        this.updateDayButtons();
-      });
-    });
-
-    this.updateDayButtons = () => {
-      this.dayButtons.forEach(({ btn, key }) => {
-        const active = this.selectedDays.has(key);
-        if (active) btn.addClass('active'); else btn.removeClass('active');
-        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
-    };
-
-    // Footer
-    const footer = contentEl.createDiv({ cls: 'modal-footer-beautiful' });
-    const left = footer.createDiv({ cls: 'footer-left' });
-    const right = footer.createDiv({ cls: 'footer-right' });
-
-    if (this.isEdit) {
-      const del = left.createEl('button', { cls: 'btn-delete-beautiful', attr: { type: 'button', 'aria-label': 'Delete quest' } });
-      del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg><span>Delete</span>';
-      del.addEventListener('click', async () => {
-        const ok = await this.plugin.showConfirmDialog('Delete Quest', `Are you sure you want to delete "${this.quest.name}"? This action cannot be undone.`);
-        if (!ok) return;
-        await this.plugin.deleteQuest(this.quest.id, true);
-        this.close();
-      });
-    }
-
-    const cancel = right.createEl('button', { text: 'Cancel', cls: 'btn-cancel-beautiful', attr: { type: 'button' } });
-    cancel.addEventListener('click', () => this.close());
-
-    const save = right.createEl('button', { text: this.isEdit ? 'Save Changes' : 'Create Quest', cls: 'btn-save-beautiful', attr: { type: 'button' } });
-    const doSave = async () => {
-      const name = nameInput.value.trim();
-      if (!name) { new Notice('❌ Quest name is required'); nameInput.focus(); nameInput.addClass('input-error'); setTimeout(() => nameInput.removeClass('input-error'), 2000); return; }
-      if (this.selectedDays.size === 0) { new Notice('❌ Select at least one day'); return; }
-      const order = 'MTWRFSU'; const daysArray = Array.from(this.selectedDays).sort((a,b)=>order.indexOf(a)-order.indexOf(b));
-      let schedule = 'daily';
-      if (daysArray.length === 5 && !daysArray.includes('S') && !daysArray.includes('U')) schedule = 'weekdays';
-      else if (daysArray.length === 2 && daysArray.includes('S') && daysArray.includes('U')) schedule = 'weekends';
-      else if (daysArray.length !== 7) schedule = daysArray.join('');
-
-      await this.onSave({
-        name,
-        category: categoryInput.value.trim() || 'Uncategorized',
-        schedule,
-        estimateMinutes: estimateInput.value ? parseInt(estimateInput.value, 10) : null
-      });
-      this.close();
-    };
-    save.addEventListener('click', doSave);
-    [nameInput, categoryInput, estimateInput].forEach(inp => inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave(); } }));
-    setTimeout(() => nameInput.focus(), 50);
-  }
-
-  onClose() { this.contentEl.empty(); }
-}
-
-// ============================================================================
-// CONFIRM MODAL
+// CONFIRM MODAL (kept; used by delete/reset)
 // ============================================================================
 class ConfirmModal extends Modal {
   constructor(app, title, message, onConfirm) {
