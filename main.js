@@ -1,11 +1,5 @@
 /**
- * Daily Quest Log - Pure JSON Implementation (Refactored + Optimized)
- * - Inline Add/Edit accordion (no modal)
- * - Fixes local date/rollover bugs
- * - Safer ribbon label handling
- * - More robust scheduling parser
- * - Lighter, clearer code paths
- * - Small UI a11y improvements (aria, titles)
+ * Daily Quest Log 
  */
 
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
@@ -565,15 +559,35 @@ class QuestView extends ItemView {
     if (this.editingId === 'new') {
       const newCardHost = container.createDiv();
       const item = newCardHost.createDiv({ cls: 'quest-item quest-item--editing quest-item--new' });
-      const titleRow = item.createDiv({ cls: 'quest-info' });
-      titleRow.createDiv({ cls: 'quest-name', text: 'New Quest' });
+      
+      const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox', attr: { disabled: 'disabled' } });
+      checkbox.disabled = true;
+      
+      const info = item.createDiv({ cls: 'quest-info' });
+      const nameEl = info.createDiv({ cls: 'quest-name' });
+      const nameInput = nameEl.createEl('input', {
+        type: 'text',
+        value: this.editingDraft?.name || '',
+        cls: 'quest-name-input-inline',
+        attr: { placeholder: 'Enter quest name...' }
+      });
+      nameInput.addEventListener('input', () => {
+        if (!this.editingDraft) this.editingDraft = {};
+        this.editingDraft.name = nameInput.value;
+      });
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.saveInlineEdit('new', item); }
+        if (e.key === 'Escape') { e.preventDefault(); this.closeInlineEdit(); }
+      });
 
       this.attachInlineEditor(item, {
-        name: this.editingDraft?.name || '',
-        category: this.editingDraft?.category || '',
-        estimateMinutes: this.editingDraft?.estimateMinutes ?? null,
+        name: '',
+        category: '',
+        estimateMinutes: null,
         schedule: 'weekdays'
-      }, true);
+      }, true, 'new');
+      
+      setTimeout(() => nameInput.focus(), 100);
     }
 
     // Quests (group by category)
@@ -643,7 +657,59 @@ class QuestView extends ItemView {
     if (!locked && !isCompleted) checkbox.addEventListener('change', async () => { if (checkbox.checked) await this.plugin.completeQuest(quest); });
 
     const info = item.createDiv({ cls: 'quest-info' });
-    info.createDiv({ cls: 'quest-name', text: quest.name });
+    
+    // Create name element with inline editing
+    const nameEl = info.createDiv({ cls: 'quest-name' });
+    if (isEditing) {
+      const nameInput = nameEl.createEl('input', {
+        type: 'text',
+        value: this.editingDraft?.name || quest.name,
+        cls: 'quest-name-input-inline',
+        attr: { placeholder: 'Quest name...' }
+      });
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.saveInlineEdit(quest.id, item); }
+        if (e.key === 'Escape') { e.preventDefault(); this.closeInlineEdit(); }
+      });
+      nameInput.addEventListener('input', () => {
+        if (!this.editingDraft) this.editingDraft = {};
+        this.editingDraft.name = nameInput.value;
+      });
+      setTimeout(() => nameInput.focus(), 50);
+    } else {
+      nameEl.setText(quest.name);
+      
+      // Double-click to edit (desktop)
+      if (!locked && !isCompleted) {
+        nameEl.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          this.openInlineEdit(quest);
+        });
+
+        // Long-press to edit (mobile)
+        let pressTimer = null;
+        nameEl.addEventListener('touchstart', (e) => {
+          pressTimer = setTimeout(() => {
+            this.openInlineEdit(quest);
+            pressTimer = null;
+          }, 500);
+        });
+        nameEl.addEventListener('touchend', () => {
+          if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+          }
+        });
+        nameEl.addEventListener('touchmove', () => {
+          if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+          }
+        });
+        
+        nameEl.addClass('quest-name--editable');
+      }
+    }
 
     const estimateEl = info.createDiv({ cls: 'quest-estimate' });
     this.updateEstimateDisplay(estimateEl, quest, totalMinutes, isActive, isPaused, isOvertime);
@@ -670,12 +736,6 @@ class QuestView extends ItemView {
       }
     }
 
-    if (!locked) {
-      const editBtn = this.iconBtn('edit', 'Edit');
-      editBtn.addEventListener('click', () => this.openInlineEdit(quest));
-      controls.appendChild(editBtn);
-    }
-
     if (locked) {
       const lockOverlay = item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' });
       lockOverlay.innerHTML = '🔒';
@@ -687,7 +747,7 @@ class QuestView extends ItemView {
         category: quest.category,
         estimateMinutes: quest.estimateMinutes ?? null,
         schedule: quest.schedule || 'weekdays'
-      }, false);
+      }, false, quest.id);
     }
 
     this.domIndex.set(quest.id, { estimateEl, itemEl: item, quest });
@@ -803,21 +863,58 @@ class QuestView extends ItemView {
     this.render();
   }
 
-  // Inline editor: Zones (1) Name/Category/Time, (2) Day picker, (3) Save/Cancel
-  attachInlineEditor(item, draft, isNew) {
+  closeInlineEdit() {
+    this.editingId = null;
+    this.editingDraft = null;
+    this.render();
+  }
+
+  async saveInlineEdit(questId, item) {
+    const name = (this.editingDraft?.name || '').trim();
+    if (!name) {
+      new Notice('❌ Quest name is required');
+      const nameInput = item.querySelector('.quest-name-input-inline');
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.addClass('input-error');
+        setTimeout(() => nameInput.removeClass('input-error'), 1200);
+      }
+      return;
+    }
+
+    const category = (this.editingDraft?.category || '').trim() || 'Uncategorized';
+    const estimateMinutes = this.editingDraft?.estimateMinutes ?? null;
+    const schedule = this.selectedDaysToSchedule(this.editingDraft?.selectedDays || new Set(['M','T','W','R','F']));
+
+    const editor = item.querySelector('.quest-editor');
+    if (editor) {
+      this.animateCollapse(editor, async () => {
+        if (questId === 'new' || !questId) {
+          await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
+        } else {
+          await this.plugin.updateQuest(questId, { name, category, schedule, estimateMinutes });
+        }
+        this.editingId = null;
+        this.editingDraft = null;
+      });
+    } else {
+      if (questId === 'new' || !questId) {
+        await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
+      } else {
+        await this.plugin.updateQuest(questId, { name, category, schedule, estimateMinutes });
+      }
+      this.editingId = null;
+      this.editingDraft = null;
+    }
+  }
+
+  // Inline editor: Zones (1) Category/Time, (2) Day picker, (3) Save/Cancel
+  attachInlineEditor(item, draft, isNew, questId = null) {
     const editor = item.createDiv({ cls: 'quest-editor', attr: { 'aria-expanded': 'true' } });
 
-    // Zone 1
+    // Zone 1 - Category and Time only (name is inline now)
     const z1 = editor.createDiv({ cls: 'quest-editor__zone zone1' });
-    const nameGroup = z1.createDiv({ cls: 'form-group-compact' });
-    nameGroup.createEl('label', { text: 'Quest Name', cls: 'form-label-compact' });
-    const nameInput = nameGroup.createEl('input', {
-      type: 'text',
-      value: this.editingDraft?.name ?? draft.name ?? '',
-      cls: 'form-input-beautiful',
-      attr: { placeholder: 'e.g., Morning Exercise' }
-    });
-
+    
     const row = z1.createDiv({ cls: 'form-row-two-col' });
     const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
     categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
@@ -826,6 +923,10 @@ class QuestView extends ItemView {
       value: this.editingDraft?.category ?? draft.category ?? '',
       cls: 'form-input-beautiful',
       attr: { placeholder: 'e.g., Health' }
+    });
+    categoryInput.addEventListener('input', () => {
+      if (!this.editingDraft) this.editingDraft = {};
+      this.editingDraft.category = categoryInput.value;
     });
 
     const estimateGroup = row.createDiv({ cls: 'form-group-compact' });
@@ -836,10 +937,14 @@ class QuestView extends ItemView {
       cls: 'form-input-beautiful',
       attr: { placeholder: 'Optional' }
     });
+    estimateInput.addEventListener('input', () => {
+      if (!this.editingDraft) this.editingDraft = {};
+      this.editingDraft.estimateMinutes = estimateInput.value ? parseInt(estimateInput.value, 10) : null;
+    });
 
     editor.createDiv({ cls: 'form-separator' });
 
-    // Zone 2
+    // Zone 2 - Schedule
     const z2 = editor.createDiv({ cls: 'quest-editor__zone zone2' });
     const scheduleHeader = z2.createDiv({ cls: 'schedule-header' });
     scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
@@ -894,50 +999,21 @@ class QuestView extends ItemView {
       });
     };
 
-    // Zone 3
+    // Zone 3 - Actions
     const z3 = editor.createDiv({ cls: 'quest-editor__zone zone3' });
     const right = z3.createDiv({ cls: 'footer-right' });
     const cancelBtn = right.createEl('button', { text: 'Cancel', cls: 'btn-cancel-beautiful', attr: { type: 'button' } });
     const saveBtn = right.createEl('button', { text: isNew ? 'Create Quest' : 'Save Changes', cls: 'btn-save-beautiful', attr: { type: 'button' } });
 
-    const closeEditor = (animate = true, after = () => {}) => {
-      const done = () => { this.editingId = null; this.editingDraft = null; this.render(); after(); };
-      if (!animate) return done();
-      this.animateCollapse(editor, done);
-    };
+    cancelBtn.addEventListener('click', () => this.closeInlineEdit());
+    saveBtn.addEventListener('click', () => this.saveInlineEdit(questId, item));
 
-    const doSave = async () => {
-      const name = nameInput.value.trim();
-      if (!name) {
-        new Notice('❌ Quest name is required');
-        nameInput.focus();
-        nameInput.addClass('input-error');
-        setTimeout(() => nameInput.removeClass('input-error'), 1200);
-        return;
-      }
-      const category = (categoryInput.value || '').trim() || 'Uncategorized';
-      const estimateMinutes = estimateInput.value ? parseInt(estimateInput.value, 10) : null;
-      const schedule = this.selectedDaysToSchedule(selectedDays);
-
-      closeEditor(true, async () => {
-        if (isNew) {
-          await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
-        } else {
-          await this.plugin.updateQuest(item.dataset.questId, { name, category, schedule, estimateMinutes });
-        }
-      });
-    };
-
-    cancelBtn.addEventListener('click', () => closeEditor());
-    saveBtn.addEventListener('click', () => doSave());
-    [nameInput, categoryInput, estimateInput].forEach(inp => inp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave(); }
-      if (e.key === 'Escape') { e.preventDefault(); closeEditor(); }
+    [categoryInput, estimateInput].forEach(inp => inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.saveInlineEdit(questId, item); }
+      if (e.key === 'Escape') { e.preventDefault(); this.closeInlineEdit(); }
     }));
 
-    // Animate open
     this.animateExpand(editor);
-    setTimeout(() => nameInput.focus(), 40);
   }
 
   parseSelectedDaysFromSchedule(schedule) {
@@ -1015,7 +1091,7 @@ class QuestView extends ItemView {
 }
 
 // ============================================================================
-// CONFIRM MODAL (kept; used by delete/reset)
+// CONFIRM MODAL (delete/reset confirmations)
 // ============================================================================
 class ConfirmModal extends Modal {
   constructor(app, title, message, onConfirm) {
