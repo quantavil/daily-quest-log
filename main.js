@@ -498,8 +498,8 @@ class QuestView extends ItemView {
     this.domIndex = new Map();
 
     // Inline editor state
-    this.editingId = null;      // 'new' or quest.id
-    this.editingDraft = null;   // { name, category, estimateMinutes, selectedDays: Set }
+    this.editingId = null;
+    this.editingDraft = null;
   }
 
   getViewType() { return VIEW_TYPE_QUESTS; }
@@ -520,6 +520,33 @@ class QuestView extends ItemView {
     const isOvertime = !!(quest.estimateMinutes && totalMinutes > quest.estimateMinutes);
     this.updateEstimateDisplay(estimateEl, quest, totalMinutes, true, false, isOvertime);
     if (isOvertime) itemEl.addClass('quest-item--overtime'); else itemEl.removeClass('quest-item--overtime');
+    
+    // Update header timer
+    this.updateHeaderTimer();
+  }
+
+  updateHeaderTimer() {
+    const { activeQuestId } = this.plugin.questLog.timerState;
+    const timerEl = this.contentEl.querySelector('.header-active-timer');
+    if (!timerEl) return;
+    
+    if (activeQuestId) {
+      const quest = this.plugin.questLog.quests.find(q => q.id === activeQuestId);
+      const totalMinutes = this.plugin.getTotalMinutes(activeQuestId);
+      const remaining = quest?.estimateMinutes ? quest.estimateMinutes - totalMinutes : null;
+      
+      if (remaining !== null) {
+        const absText = formatTime(Math.abs(remaining));
+        timerEl.textContent = remaining >= 0 ? absText : `-${absText}`;
+        timerEl.className = remaining >= 0 ? 'header-active-timer' : 'header-active-timer header-active-timer--overtime';
+      } else {
+        timerEl.textContent = formatTime(totalMinutes);
+        timerEl.className = 'header-active-timer';
+      }
+    } else {
+      timerEl.textContent = '—';
+      timerEl.className = 'header-active-timer header-active-timer--idle';
+    }
   }
 
   async render() {
@@ -531,23 +558,30 @@ class QuestView extends ItemView {
     const player = this.plugin.questLog.player;
     const xpForNext = this.plugin.getXPForNextLevel(player.level);
     const xpPercent = clamp((player.xp / xpForNext) * 100, 0, 100);
+    const rank = RANK_FOR(player.level);
 
     // Header
-    const rank = RANK_FOR(player.level);
     const header = container.createDiv({ cls: 'quest-view-header' });
     const top = header.createDiv({ cls: 'quest-header-top' });
-    top.createEl('h2', { text: "Today's Quests" });
-    const rankDisplay = top.createDiv({ cls: 'quest-rank-display' });
-    rankDisplay.innerHTML = `<span class="rank-icon">${rank.icon}</span> <span class="rank-name" style="color:${rank.color}">${rank.name}</span>`;
+    
+    const leftSide = top.createDiv({ cls: 'header-left' });
+    leftSide.createEl('h2', { text: "Today's Quests" });
+    
+    const rightSide = top.createDiv({ cls: 'header-right' });
+    const timerBox = rightSide.createDiv({ cls: 'header-timer-box' });
+    timerBox.createDiv({ cls: 'header-timer-label', text: 'Active Timer' });
+    const timerValue = timerBox.createDiv({ cls: 'header-active-timer header-active-timer--idle', text: '—' });
+    
+    const rankBox = rightSide.createDiv({ cls: 'header-rank-box' });
+    rankBox.innerHTML = `<span class="rank-icon">${rank.icon}</span><span class="rank-name" style="color:${rank.color}">${rank.name.toUpperCase()}</span><span class="rank-level">Level ${player.level}</span>`;
 
     const todayQuests = this.plugin.getTodayQuests();
     const completedCount = todayQuests.filter(q => this.plugin.isCompletedToday(q.id)).length;
     const totalCount = todayQuests.length;
 
     const stats = header.createDiv({ cls: 'quest-view-stats' });
-    stats.createEl('span', { text: `Level ${player.level}` });
     stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
-    stats.createEl('span', { text: `${completedCount}/${totalCount} Quests`, cls: 'quest-completion-stat' });
+    stats.createEl('span', { text: `${completedCount}/${totalCount} Completed`, cls: 'quest-completion-stat' });
 
     const addBtn = stats.createEl('button', { text: '➕ Add Quest', cls: 'btn-add-header' });
     addBtn.type = 'button'; addBtn.setAttribute('aria-label', 'Add Quest'); addBtn.addEventListener('click', () => this.openInlineAdd());
@@ -590,6 +624,9 @@ class QuestView extends ItemView {
       setTimeout(() => nameInput.focus(), 100);
     }
 
+    // Check if any quest is running
+    const hasActiveQuest = !!this.plugin.questLog.timerState.activeQuestId;
+
     // Quests (group by category)
     const otherQuests = this.plugin.getOtherQuests();
     const activeToday = todayQuests.filter(q => !this.plugin.isCompletedToday(q.id));
@@ -605,6 +642,7 @@ class QuestView extends ItemView {
         container.createDiv({ cls: 'quest-section-title', text: category });
         const categoryList = container.createDiv({ cls: 'quest-list' });
         categoryList.dataset.category = category;
+        if (hasActiveQuest) categoryList.addClass('has-active-quest');
         this.setupDragDrop(categoryList);
         for (const q of quests) this.renderQuestItem(categoryList, q, { draggable: true, locked: false });
       }
@@ -624,6 +662,9 @@ class QuestView extends ItemView {
     const reportBtn = footer.createEl('button', { text: '📊 Generate Report', cls: 'btn-primary' });
     reportBtn.type = 'button'; reportBtn.setAttribute('aria-label', 'Generate Report');
     reportBtn.addEventListener('click', () => this.plugin.generateReport());
+    
+    // Update timer immediately
+    this.updateHeaderTimer();
   }
 
   renderQuestItem(container, quest, { draggable, locked }) {
@@ -658,7 +699,6 @@ class QuestView extends ItemView {
 
     const info = item.createDiv({ cls: 'quest-info' });
     
-    // Create name element with inline editing
     const nameEl = info.createDiv({ cls: 'quest-name' });
     if (isEditing) {
       const nameInput = nameEl.createEl('input', {
@@ -679,14 +719,12 @@ class QuestView extends ItemView {
     } else {
       nameEl.setText(quest.name);
       
-      // Double-click to edit (desktop)
       if (!locked && !isCompleted) {
         nameEl.addEventListener('dblclick', (e) => {
           e.preventDefault();
           this.openInlineEdit(quest);
         });
 
-        // Long-press to edit (mobile)
         let pressTimer = null;
         nameEl.addEventListener('touchstart', (e) => {
           pressTimer = setTimeout(() => {
@@ -840,7 +878,6 @@ class QuestView extends ItemView {
     }
   }
 
-  // Inline Add/Edit entry points
   openInlineAdd() {
     this.editingId = 'new';
     this.editingDraft = {
@@ -908,11 +945,10 @@ class QuestView extends ItemView {
     }
   }
 
-  // Inline editor: Zones (1) Category/Time, (2) Day picker, (3) Save/Cancel
   attachInlineEditor(item, draft, isNew, questId = null) {
     const editor = item.createDiv({ cls: 'quest-editor', attr: { 'aria-expanded': 'true' } });
 
-    // Zone 1 - Category and Time only (name is inline now)
+    // Zone 1
     const z1 = editor.createDiv({ cls: 'quest-editor__zone zone1' });
     
     const row = z1.createDiv({ cls: 'form-row-two-col' });
@@ -942,9 +978,7 @@ class QuestView extends ItemView {
       this.editingDraft.estimateMinutes = estimateInput.value ? parseInt(estimateInput.value, 10) : null;
     });
 
-    editor.createDiv({ cls: 'form-separator' });
-
-    // Zone 2 - Schedule
+    // Zone 2
     const z2 = editor.createDiv({ cls: 'quest-editor__zone zone2' });
     const scheduleHeader = z2.createDiv({ cls: 'schedule-header' });
     scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
@@ -965,23 +999,21 @@ class QuestView extends ItemView {
 
     const dayPicker = z2.createDiv({ cls: 'day-picker-beautiful' });
     const dayDefs = [
-      { key: 'M', label: 'Mon', fullName: 'Monday' },
-      { key: 'T', label: 'Tue', fullName: 'Tuesday' },
-      { key: 'W', label: 'Wed', fullName: 'Wednesday' },
-      { key: 'R', label: 'Thu', fullName: 'Thursday' },
-      { key: 'F', label: 'Fri', fullName: 'Friday' },
-      { key: 'S', label: 'Sat', fullName: 'Saturday' },
-      { key: 'U', label: 'Sun', fullName: 'Sunday' }
+      { key: 'M', label: 'MON' },
+      { key: 'T', label: 'TUE' },
+      { key: 'W', label: 'WED' },
+      { key: 'R', label: 'THU' },
+      { key: 'F', label: 'FRI' },
+      { key: 'S', label: 'SAT' },
+      { key: 'U', label: 'SUN' }
     ];
     const btns = [];
     dayDefs.forEach(d => {
       const btn = dayPicker.createEl('button', {
         cls: 'day-btn-beautiful',
-        attr: { 'data-day': d.key, type: 'button', title: d.fullName, 'aria-pressed': selectedDays.has(d.key) ? 'true' : 'false' }
+        attr: { 'data-day': d.key, type: 'button', title: d.label, 'aria-pressed': selectedDays.has(d.key) ? 'true' : 'false' }
       });
-      const wrap = btn.createDiv({ cls: 'day-content' });
-      wrap.createEl('span', { text: d.key, cls: 'day-letter' });
-      wrap.createEl('span', { text: d.label, cls: 'day-name' });
+      btn.setText(d.label);
       if (selectedDays.has(d.key)) btn.addClass('active');
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -999,11 +1031,22 @@ class QuestView extends ItemView {
       });
     };
 
-    // Zone 3 - Actions
+    // Zone 3
     const z3 = editor.createDiv({ cls: 'quest-editor__zone zone3' });
+    
+    // Delete button (left side)
+    if (!isNew) {
+      const deleteBtn = z3.createEl('button', { cls: 'btn-delete-beautiful', attr: { type: 'button', title: 'Delete quest' } });
+      deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      deleteBtn.addEventListener('click', async () => {
+        await this.plugin.deleteQuest(questId);
+        this.closeInlineEdit();
+      });
+    }
+    
     const right = z3.createDiv({ cls: 'footer-right' });
     const cancelBtn = right.createEl('button', { text: 'Cancel', cls: 'btn-cancel-beautiful', attr: { type: 'button' } });
-    const saveBtn = right.createEl('button', { text: isNew ? 'Create Quest' : 'Save Changes', cls: 'btn-save-beautiful', attr: { type: 'button' } });
+    const saveBtn = right.createEl('button', { text: isNew ? 'Create' : 'Save', cls: 'btn-save-beautiful', attr: { type: 'button' } });
 
     cancelBtn.addEventListener('click', () => this.closeInlineEdit());
     saveBtn.addEventListener('click', () => this.saveInlineEdit(questId, item));
@@ -1083,7 +1126,6 @@ class QuestView extends ItemView {
     const svgs = {
       play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
       pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>',
-      edit: '<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>'
     };
     btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
     return btn;
@@ -1091,7 +1133,7 @@ class QuestView extends ItemView {
 }
 
 // ============================================================================
-// CONFIRM MODAL (delete/reset confirmations)
+// CONFIRM MODAL
 // ============================================================================
 class ConfirmModal extends Modal {
   constructor(app, title, message, onConfirm) {
