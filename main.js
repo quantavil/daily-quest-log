@@ -50,7 +50,13 @@ const RANK_FOR = (lvl) => RANKS.find((r) => lvl >= r.minLevel && lvl <= r.maxLev
 /* UTILITIES                                                                  */
 /* ========================================================================== */
 
-const toLocalDMY = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+const toLocalDMY = (d) => {
+  // Local ISO-like date key: YYYY-MM-DD
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 const todayStr = () => toLocalDMY(new Date());
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const safeParse = (str, fallback = null) => { try { return JSON.parse(str); } catch { return fallback; } };
@@ -198,8 +204,10 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const t = todayStr();
     if (this.questLog.day !== t) {
       await this.autoPauseActiveQuest(); // move active elapsed into pausedSessions
+      // Reset daily timers (no carryover)
       this.questLog.timerState.activeQuestId = null;
       this.questLog.timerState.startTime = null;
+      this.questLog.timerState.pausedSessions = {};
       this.questLog.day = t;
       await this.commit();
     } else if (init && !this.questLog.day) {
@@ -216,7 +224,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   /* ------------------------------- CRUD ----------------------------------- */
   getActiveQuests() {
     return this.questLog.quests
-      .filter((q) => !q.archived)
+      .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }
 
@@ -229,7 +237,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       estimateMinutes: Number.isFinite(estimateMinutes) && estimateMinutes > 0 ? Math.floor(estimateMinutes) : null,
       order: this.getActiveQuests().length,
       createdAt: todayStr(),
-      archived: false,
     };
     this.questLog.quests.push(quest);
     await this.commit();
@@ -250,22 +257,37 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async deleteQuest(id, skipConfirm = false) {
-    const q = this.questLog.quests.find((x) => x.id === id);
-    if (!q) return;
+    const idx = this.questLog.quests.findIndex((x) => x.id === id);
+    if (idx === -1) return;
+    const q = this.questLog.quests[idx];
+
     if (!skipConfirm) {
       const ok = await this.showConfirmDialog('🗑️ Delete Quest', `Delete "${q.name}"?`);
       if (!ok) return;
     }
-    q.archived = true;
+
     const s = this.questLog.timerState;
     if (s.activeQuestId === id) { s.activeQuestId = null; s.startTime = null; }
     delete s.pausedSessions[id];
+
+    // Remove associated completions so deleted quests don't appear in reports
+    this.questLog.completions = this.questLog.completions.filter((c) => c.questId !== id);
+
+    // Remove the quest entirely
+    this.questLog.quests.splice(idx, 1);
+
+    // Reindex the order
+    this.questLog.quests
+      .slice()
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .forEach((q, i) => (q.order = i));
+
     await this.commit();
     new Notice('✓ Quest deleted');
   }
 
   async reorderQuests(questIds, category) {
-    const list = this.questLog.quests.filter((q) => !q.archived);
+    const list = this.questLog.quests.slice();
     const inCat = list.filter((q) => q.category === category);
     const base = inCat.length ? Math.min(...inCat.map((q) => q.order ?? 0)) : 0;
     questIds.forEach((id, i) => { const q = list.find((x) => x.id === id); if (q) q.order = base + i; });
@@ -921,12 +943,16 @@ class QuestView extends ItemView {
       return;
     }
 
+    const selectedDays = this.editingDraft?.selectedDays || new Set();
+    if (selectedDays.size === 0) {
+      new Notice('❌ At least one day must be selected');
+      return;
+    }
+
     const category = (this.editingDraft?.category || '').trim() || 'Uncategorized';
     const estimateMinutes = this.editingDraft?.estimateMinutes ?? null;
-    const schedule = selectedDaysToSchedule(this.editingDraft?.selectedDays || new Set(['mon', 'tue', 'wed', 'thu', 'fri']));
+    const schedule = selectedDaysToSchedule(selectedDays);
     const wasNew = questId === 'new' || !questId;
-    this.editingId = null;
-    this.editingDraft = null;
 
     const editor = item.querySelector('.quest-editor');
     const apply = async () => {
@@ -937,10 +963,12 @@ class QuestView extends ItemView {
       }
     };
 
+    const finalize = () => { this.editingId = null; this.editingDraft = null; };
+
     if (editor) {
-      this.animateCollapse(editor, apply);
+      this.animateCollapse(editor, async () => { await apply(); finalize(); });
     } else {
-      await apply();
+      await apply(); finalize();
     }
   }
 
@@ -1004,7 +1032,22 @@ class QuestView extends ItemView {
       });
       btn.setText(d.label);
       btn.toggleClass('active', selectedDays.has(d.key));
-      btn.addEventListener('click', (e) => { e.preventDefault(); selectedDays.has(d.key) ? selectedDays.delete(d.key) : selectedDays.add(d.key); updateDayButtons(); });
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const isActive = selectedDays.has(d.key);
+
+        // Prevent deselecting the last remaining day
+        if (isActive && selectedDays.size === 1) {
+          new Notice('At least one day must be selected.');
+          btn.toggleClass('shake', true);
+          setTimeout(() => btn.toggleClass('shake', false), 400);
+          return;
+        }
+
+        if (isActive) selectedDays.delete(d.key);
+        else selectedDays.add(d.key);
+        updateDayButtons();
+      });
       btns.push({ btn, key: d.key });
     });
 
