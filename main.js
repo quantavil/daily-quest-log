@@ -240,7 +240,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const base = inCat.length ? Math.min(...inCat.map((q) => q.order ?? 0)) : 0;
     questIds.forEach((id, i) => { const q = list.find((x) => x.id === id); if (q) q.order = base + i; });
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
-    await this.saveQuestLog();
+    await this.commit();
   }
 
   getTodayQuests() { return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, new Date())); }
@@ -250,7 +250,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     return this.questLog.completions.some((c) => c.questId === questId && c.date === t);
   }
 
-  // Centralized quest state calculation (OPTIMIZATION)
   getQuestState(questId) {
     const s = this.questLog.timerState;
     const isActive = s.activeQuestId === questId;
@@ -520,6 +519,7 @@ class QuestView extends ItemView {
     this.domIndex = new Map();
     this.editingId = null;
     this.editingDraft = null;
+    this.totalRemainingSpan = null;
   }
 
   getViewType() { return VIEW_TYPE_QUESTS; }
@@ -545,8 +545,7 @@ class QuestView extends ItemView {
   }
 
   updateHeaderTimer() {
-    const totalRemainingSpan = this.contentEl.querySelector('.quest-total-remaining');
-    if (!totalRemainingSpan) return;
+    if (!this.totalRemainingSpan) return;
     const unfinished = this.plugin.getTodayQuests().filter((q) => !this.plugin.isCompletedToday(q.id));
     const totalRemaining = unfinished.reduce((sum, q) => {
       if (q.estimateMinutes && q.estimateMinutes > 0) {
@@ -554,10 +553,9 @@ class QuestView extends ItemView {
       }
       return sum;
     }, 0);
-    totalRemainingSpan.textContent = formatTime(totalRemaining);
+    this.totalRemainingSpan.textContent = formatTime(totalRemaining);
   }
 
-  // Optimized DOM creation helper (OPTIMIZATION)
   createElement(tag, options = {}) {
     const el = document.createElement(tag);
     if (options.cls) el.className = options.cls;
@@ -572,6 +570,7 @@ class QuestView extends ItemView {
   async render() {
     const container = this.contentEl;
     this.domIndex.clear();
+    this.totalRemainingSpan = null;
     container.empty();
     container.addClass('quest-view-container');
 
@@ -628,6 +627,8 @@ class QuestView extends ItemView {
     </svg>
     <span class="quest-total-remaining">${formatTime(totalRemaining)}</span>
   </div>`;
+
+    this.totalRemainingSpan = xpStats.querySelector('.quest-total-remaining');
 
     const addBtnCompact = this.createElement('button', {
       cls: 'btn-add-compact',
@@ -705,7 +706,6 @@ class QuestView extends ItemView {
     setTimeout(() => nameInput.focus(), 100);
   }
 
-  // Optimized quest item rendering (OPTIMIZATION - uses centralized state)
   renderQuestItem(container, quest, { draggable, locked }) {
     const state = this.plugin.getQuestState(quest.id);
     const isEditing = this.editingId === quest.id;
@@ -713,7 +713,6 @@ class QuestView extends ItemView {
     const item = container.createDiv({ cls: 'quest-item' });
     item.dataset.questId = quest.id;
     
-    // Optimized class application (OPTIMIZATION)
     const classes = {
       'quest-item--active': state.isActive,
       'quest-item--paused': state.isPaused,
@@ -809,7 +808,6 @@ class QuestView extends ItemView {
     this.domIndex.set(quest.id, { estimateEl, itemEl: item, quest });
   }
 
-  // Optimized time display (OPTIMIZATION - uses state object)
   updateEstimateDisplay(div, quest, state) {
     div.empty(); div.className = 'quest-estimate';
     if (state.isCompleted) { div.setText('Completed'); div.addClass('quest-estimate--paused'); return; }
@@ -943,11 +941,9 @@ class QuestView extends ItemView {
     else await saveAction();
   }
 
-  // Optimized form creation (OPTIMIZATION - reduced duplication)
   attachInlineEditor(item, draft, isNew, questId = null) {
     const editor = item.createDiv({ cls: 'quest-editor', attr: { 'aria-expanded': 'true' } });
 
-    // Zone 1: Category & Time
     const z1 = editor.createDiv({ cls: 'quest-editor__zone zone1' });
     const row = z1.createDiv({ cls: 'form-row-two-col' });
 
@@ -989,7 +985,6 @@ class QuestView extends ItemView {
       (this.editingDraft ||= {}).estimateMinutes = estimateInput.value ? parseInt(estimateInput.value, 10) : null;
     });
 
-    // Zone 2: Schedule
     const z2 = editor.createDiv({ cls: 'quest-editor__zone zone2' });
     const scheduleHeader = z2.createDiv({ cls: 'schedule-header' });
     scheduleHeader.createEl('label', { text: 'Schedule Days', cls: 'form-label-schedule' });
@@ -1042,7 +1037,6 @@ class QuestView extends ItemView {
       btns.push({ btn, key: d.key });
     });
 
-    // Zone 3: Actions
     const z3 = editor.createDiv({ cls: 'quest-editor__zone zone3' });
     if (!isNew) {
       const deleteBtn = z3.createEl('button', { cls: 'btn-delete-beautiful', attr: { type: 'button', title: 'Delete quest' } });
