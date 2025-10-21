@@ -31,7 +31,7 @@ const RANKS = [
   { name: 'Summoner', icon: '🌀', minLevel: 35, maxLevel: 39, color: '#00e5ff' },
   { name: 'Diviner', icon: '🔮', minLevel: 40, maxLevel: 44, color: '#20d0ff' },
   { name: 'Illusionist', icon: '🎭', minLevel: 45, maxLevel: 49, color: '#40bbff' },
-  { name: 'Alchemist', icon: '⚗️', minLevel: 50, maxLevel:54, color: '#60a6ff' },
+  { name: 'Alchemist', icon: '⚗️', minLevel: 50, maxLevel: 54, color: '#60a6ff' },
   { name: 'Evoker', icon: '⚡', minLevel: 55, maxLevel: 59, color: '#8091ff' },
   { name: 'Elementalist', icon: '🌪️', minLevel: 60, maxLevel: 64, color: '#a07cff' },
   { name: 'Warlock', icon: '☠️', minLevel: 65, maxLevel: 69, color: '#b794f6' },
@@ -501,7 +501,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 | Rank | Quest Name | Completions | Total XP | Total Time |
 |------|-----------|-------------|----------|------------|
-${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes/60)}h ${Math.floor(q.minutes%60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
+${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes / 60)}h ${Math.floor(q.minutes % 60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
 
 ---
 
@@ -509,7 +509,7 @@ ${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} X
 
 | Date | Quests | XP Earned | Time Spent |
 |------|--------|-----------|------------|
-${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes/60) ? `${Math.floor(d.minutes/60)}h ${Math.floor(d.minutes%60)}m` : `${Math.floor(d.minutes%60)}m`} |`).join('\n')}
+${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes / 60) ? `${Math.floor(d.minutes / 60)}h ${Math.floor(d.minutes % 60)}m` : `${Math.floor(d.minutes % 60)}m`} |`).join('\n')}
 `;
   }
 };
@@ -552,6 +552,7 @@ class QuestView extends ItemView {
   updateHeaderTimer() {
     const totalRemainingSpan = this.contentEl.querySelector('.quest-total-remaining');
     if (!totalRemainingSpan) return;
+
     const unfinished = this.plugin.getTodayQuests().filter((q) => !this.plugin.isCompletedToday(q.id));
     const totalRemaining = unfinished.reduce((sum, q) => {
       if (q.estimateMinutes && q.estimateMinutes > 0) {
@@ -560,6 +561,7 @@ class QuestView extends ItemView {
       }
       return sum;
     }, 0);
+
     totalRemainingSpan.textContent = formatTime(totalRemaining);
   }
 
@@ -574,34 +576,71 @@ class QuestView extends ItemView {
     const xpPercent = clamp((player.xp / xpForNext) * 100, 0, 100);
     const rank = RANK_FOR(player.level);
 
-    // Header
+    // Header - Ultra Compact
     const header = container.createDiv({ cls: 'quest-view-header' });
-    const top = header.createDiv({ cls: 'quest-header-top' });
 
-    const leftSide = top.createDiv({ cls: 'header-left' });
-    leftSide.createDiv({ cls: 'header-left-inner' }).createEl('h2', { text: "Today's Quests" });
+    // Row 1: Title + Rank (compact, inline)
+    const headerTop = header.createDiv({ cls: 'quest-header-top-compact' });
+    headerTop.createEl('h2', { text: "Today's Quests", cls: 'quest-title-compact' });
 
-    const rightSide = top.createDiv({ cls: 'header-right' });
-    rightSide.createEl('span', { text: '—', cls: 'quest-total-remaining' });
+    const rankCompact = headerTop.createDiv({ cls: 'rank-compact' });
+    rankCompact.innerHTML = `
+  <span class="rank-compact__icon" style="color:${rank.color};text-shadow:0 0 12px ${rank.color}80" title="${rank.name}">${rank.icon}</span>
+  <span class="rank-compact__level">Lv${player.level}</span>
+`;
 
-    const rankDisplay = rightSide.createDiv({ cls: 'header-rank-display' });
-    rankDisplay.innerHTML = `<div class="rank-icon" style="font-size:3rem;text-shadow:0 0 20px ${rank.color}">${rank.icon}</div><div class="rank-name" style="color:${rank.color};font-size:.6rem">${rank.name.toUpperCase()}</div>`;
-
+    // Row 2: XP Bar with embedded stats + Add button
     const todayQuests = this.plugin.getTodayQuests();
     const completedCount = todayQuests.filter((q) => this.plugin.isCompletedToday(q.id)).length;
+    const unfinished = todayQuests.filter((q) => !this.plugin.isCompletedToday(q.id));
+    const totalRemaining = unfinished.reduce((sum, q) => {
+      if (q.estimateMinutes && q.estimateMinutes > 0) {
+        const spent = this.plugin.getTotalMinutes(q.id);
+        return sum + Math.max(0, q.estimateMinutes - spent);
+      }
+      return sum;
+    }, 0);
 
-    const stats = header.createDiv({ cls: 'quest-view-stats' });
-    stats.createEl('span', { text: `Lvl ${player.level}` });
-    stats.createEl('span', { text: `${player.xp} / ${xpForNext} XP` });
-    stats.createEl('span', { text: `${completedCount}/${todayQuests.length} Completed`, cls: 'quest-completion-stat' });
+    const progressRow = header.createDiv({ cls: 'quest-progress-row' });
 
-    const addBtn = stats.createEl('button', { text: '➕ Add Quest', cls: 'btn-add-header' });
-    addBtn.type = 'button';
-    addBtn.setAttribute('aria-label', 'Add Quest');
-    addBtn.addEventListener('click', () => this.openInlineAdd());
+    // XP Bar container with stats overlay
+    const xpContainer = progressRow.createDiv({ cls: 'xp-container-compact' });
+    const xpBar = xpContainer.createDiv({ cls: 'xp-bar-compact' });
+    const xpFill = xpBar.createDiv({ cls: 'xp-fill-compact' });
+    xpFill.style.width = `${xpPercent}%`;
 
-    const xpBar = header.createDiv({ cls: 'quest-xp-bar' });
-    xpBar.createDiv({ cls: 'quest-xp-fill', attr: { style: `width:${xpPercent}%` } });
+    const xpStats = xpContainer.createDiv({ cls: 'xp-stats-overlay' });
+    xpStats.innerHTML = `
+  <div class="xp-stat">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+    </svg>
+    <span>${player.xp}/${xpForNext}</span>
+  </div>
+  <div class="xp-stat xp-stat--success">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span>${completedCount}/${todayQuests.length}</span>
+  </div>
+  <div class="xp-stat xp-stat--time">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+    </svg>
+    <span class="quest-total-remaining">${formatTime(totalRemaining)}</span>
+  </div>
+`;
+
+    const addBtnCompact = progressRow.createEl('button', { cls: 'btn-add-compact' });
+    addBtnCompact.innerHTML = `
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+    <path d="M12 5v14M5 12h14"/>
+  </svg>
+`;
+    addBtnCompact.type = 'button';
+    addBtnCompact.setAttribute('aria-label', 'Add Quest');
+    addBtnCompact.title = 'Add Quest';
+    addBtnCompact.addEventListener('click', () => this.openInlineAdd());
 
     // Inline "new" editor
     if (this.editingId === 'new') this.renderInlineNew(container);
@@ -1046,28 +1085,28 @@ class QuestLogSettingTab extends PluginSettingTab {
       .setDesc('XP earned per minute when quest has an estimate')
       .addText((t) => t.setPlaceholder('1')
         .setValue(String(this.plugin.settings.xpPerMinute))
-        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.xpPerMinute = n; await this.plugin.saveSettings(); }}));
+        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.xpPerMinute = n; await this.plugin.saveSettings(); } }));
 
     new Setting(containerEl)
       .setName('Flat XP (no estimate)')
       .setDesc('XP earned when quest has no time estimate')
       .addText((t) => t.setPlaceholder('10')
         .setValue(String(this.plugin.settings.flatXp))
-        .onChange(async (v) => { const n = parseInt(v, 10); if (!isNaN(n) && n > 0) { this.plugin.settings.flatXp = n; await this.plugin.saveSettings(); }}));
+        .onChange(async (v) => { const n = parseInt(v, 10); if (!isNaN(n) && n > 0) { this.plugin.settings.flatXp = n; await this.plugin.saveSettings(); } }));
 
     new Setting(containerEl)
       .setName('Leveling base')
       .setDesc('Base XP for leveling formula')
       .addText((t) => t.setPlaceholder('100')
         .setValue(String(this.plugin.settings.levelingBase))
-        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingBase = n; await this.plugin.saveSettings(); }}));
+        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingBase = n; await this.plugin.saveSettings(); } }));
 
     new Setting(containerEl)
       .setName('Leveling exponent')
       .setDesc('Exponent for leveling formula (higher = steeper curve)')
       .addText((t) => t.setPlaceholder('1.5')
         .setValue(String(this.plugin.settings.levelingExponent))
-        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingExponent = n; await this.plugin.saveSettings(); }}));
+        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingExponent = n; await this.plugin.saveSettings(); } }));
 
     containerEl.createEl('p', { text: 'XP for next level = round(base × level^exponent)', cls: 'setting-item-description' });
 
