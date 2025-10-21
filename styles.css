@@ -548,27 +548,35 @@
    INLINE EDITOR
    ============================================================================ */
 
-.quest-editor {
-  grid-column: 1 / -1;
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 220ms ease;
-  border-top: 1px dashed var(--border);
-  margin-top: var(--space-sm);
+.quest-editor{
+  grid-column:1 / -1;
+  overflow:hidden;
+  max-height:0;
+  transition:max-height 220ms ease;
+  border-top:1px dashed var(--border);
+  margin-top:var(--space-sm);
 }
 
-.quest-editor__zone {
-  padding-top: var(--space-sm);
+/* When expanded, allow overflow for buttons */
+.quest-item--editing .quest-editor,
+.quest-item--new .quest-editor{
+  overflow:visible;
 }
 
-.quest-editor__zone.zone3 {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-sm);
-  padding-top: var(--space-md);
+.quest-editor__zone{
+  padding-top:var(--space-sm);
 }
 
+.quest-editor__zone.zone3{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:var(--space-sm);
+  padding-top:var(--space-md);
+  padding-bottom:var(--space-sm);
+  position:relative;
+  z-index:10;
+}
 .form-group-compact {
   margin-bottom: var(--space-sm);
 }

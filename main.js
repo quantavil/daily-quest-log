@@ -910,23 +910,35 @@ class QuestView extends ItemView {
     if (!name) {
       new Notice('❌ Quest name is required');
       const nameInput = item.querySelector('.quest-name-input-inline');
-      if (nameInput) { nameInput.focus(); nameInput.addClass('input-error'); setTimeout(() => nameInput.removeClass('input-error'), 1200); }
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.addClass('input-error');
+        setTimeout(() => nameInput.removeClass('input-error'), 1200);
+      }
       return;
     }
 
     const category = (this.editingDraft?.category || '').trim() || 'Uncategorized';
     const estimateMinutes = this.editingDraft?.estimateMinutes ?? null;
     const schedule = selectedDaysToSchedule(this.editingDraft?.selectedDays || new Set(['mon', 'tue', 'wed', 'thu', 'fri']));
+    const wasNew = questId === 'new' || !questId;
+    this.editingId = null;
+    this.editingDraft = null;
 
     const editor = item.querySelector('.quest-editor');
     const apply = async () => {
-      if (questId === 'new' || !questId) await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
-      else await this.plugin.updateQuest(questId, { name, category, schedule, estimateMinutes });
-      this.editingId = null; this.editingDraft = null;
+      if (wasNew) {
+        await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
+      } else {
+        await this.plugin.updateQuest(questId, { name, category, schedule, estimateMinutes });
+      }
     };
 
-    if (editor) this.animateCollapse(editor, apply);
-    else await apply();
+    if (editor) {
+      this.animateCollapse(editor, apply);
+    } else {
+      await apply();
+    }
   }
 
   attachInlineEditor(item, draft, isNew, questId = null) {
