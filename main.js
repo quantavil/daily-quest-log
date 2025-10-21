@@ -742,7 +742,7 @@ class QuestView extends ItemView {
       if (e.key === 'Escape') { e.preventDefault(); this.closeInlineEdit(); }
     });
 
-    this.attachInlineEditor(item, { name: '', category: '', estimateMinutes: null, schedule: 'weekdays' }, true, 'new');
+    this.attachInlineEditor(item, { name: '', category: '', estimateMinutes: null, schedule: 'daily' }, true, 'new');
     setTimeout(() => nameInput.focus(), 100);
   }
 
@@ -923,7 +923,7 @@ class QuestView extends ItemView {
 
   openInlineAdd() {
     this.editingId = 'new';
-    this.editingDraft = { name: '', category: '', estimateMinutes: null, selectedDays: new Set(['mon', 'tue', 'wed', 'thu', 'fri']) };
+    this.editingDraft = { name: '', category: '', estimateMinutes: null, selectedDays: new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) };
     this.render();
   }
 
@@ -933,7 +933,7 @@ class QuestView extends ItemView {
       name: quest.name,
       category: quest.category,
       estimateMinutes: quest.estimateMinutes ?? null,
-      selectedDays: parseSelectedDaysFromSchedule(quest.schedule || 'weekdays'),
+      selectedDays: parseSelectedDaysFromSchedule(quest.schedule || 'daily'),
     };
     this.render();
   }
