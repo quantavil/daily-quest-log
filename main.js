@@ -92,47 +92,52 @@ const formatTime = (minutes) => {
 };
 
 /* ========================================================================== */
-/* SCHEDULE UTILS                                                             */
+/* SCHEDULE UTILS                       */
 /* ========================================================================== */
 
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const DAY_TO_INDEX = Object.fromEntries(DAY_KEYS.map((k, i) => [k, i]));
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // Date.getDay() order
 const MON_FIRST_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+const DAY_INDEX = Object.fromEntries(DAY_KEYS.map((k, i) => [k, i]));
+const WEEKDAYS = new Set(['mon', 'tue', 'wed', 'thu', 'fri']);
+const WEEKENDS = new Set(['sat', 'sun']);
+
+const normDay = (v) => {
+  const s = String(v || '').trim().toLowerCase();
+  // accept short or full names (mon/monday, etc.)
+  for (const k of DAY_KEYS) if (s.startsWith(k)) return k;
+  return null;
+};
 
 function parseSchedule(raw) {
   const s = String(raw || '').trim().toLowerCase();
-  if (!s || s === 'daily') return { kind: 'daily', days: new Set(DAY_KEYS) };
-  if (s === 'weekdays') return { kind: 'weekdays', days: new Set(['mon', 'tue', 'wed', 'thu', 'fri']) };
-  if (s === 'weekends') return { kind: 'weekends', days: new Set(['sat', 'sun']) };
+  if (!s || s === 'daily' || s === 'all' || s === 'everyday') {
+    return { kind: 'daily', days: new Set(DAY_KEYS) };
+  }
+  if (s === 'weekdays') return { kind: 'weekdays', days: new Set(WEEKDAYS) };
+  if (s === 'weekends') return { kind: 'weekends', days: new Set(WEEKENDS) };
 
-  const tokens = s.split(/[\s,]+/).filter(Boolean);
   const days = new Set();
-  const isKey = (k) => Object.prototype.hasOwnProperty.call(DAY_TO_INDEX, k);
-  for (const tok of tokens) {
-    if (tok.includes('-')) {
-      const [a, b] = tok.split('-');
-      if (isKey(a) && isKey(b)) {
-        const ai = DAY_TO_INDEX[a], bi = DAY_TO_INDEX[b];
-        for (let i = 0; i < 7; i++) {
-          const idx = (ai + i) % 7;
-          days.add(DAY_KEYS[idx]);
-          if (idx === bi) break;
-        }
-      }
-    } else if (isKey(tok)) {
-      days.add(tok);
+  for (const tok of s.split(/[\s,]+/).filter(Boolean)) {
+    const [a, b] = tok.split('-');
+    const A = normDay(a);
+    if (!b) { if (A) days.add(A); continue; }
+    const B = normDay(b);
+    if (!A || !B) continue;
+
+    for (let i = 0; i < 7; i++) {
+      const idx = (DAY_INDEX[A] + i) % 7;
+      const key = DAY_KEYS[idx];
+      days.add(key);
+      if (key === B) break;
     }
   }
   return { kind: 'days', days };
 }
 
 function isScheduledOnDate(schedule, date = new Date()) {
-  const parsed = parseSchedule(schedule);
-  if (parsed.kind === 'daily') return true;
-  if (parsed.kind === 'weekdays') { const d = date.getDay(); return d >= 1 && d <= 5; }
-  if (parsed.kind === 'weekends') { const d = date.getDay(); return d === 0 || d === 6; }
-  const todayKey = DAY_KEYS[date.getDay()];
-  return parsed.days.has(todayKey);
+  const { days } = parseSchedule(schedule);
+  return days.has(DAY_KEYS[date.getDay()]);
 }
 
 function parseSelectedDaysFromSchedule(schedule) {
@@ -141,13 +146,15 @@ function parseSelectedDaysFromSchedule(schedule) {
 
 function selectedDaysToSchedule(selectedDays) {
   const set = new Set(selectedDays || []);
+  const isEqual = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
+
   if (set.size === 7) return 'daily';
-  const weekdays = ['mon', 'tue', 'wed', 'thu', 'fri'];
-  const weekends = ['sat', 'sun'];
-  if (weekdays.every((d) => set.has(d)) && weekends.every((d) => !set.has(d))) return 'weekdays';
-  if (weekends.every((d) => set.has(d)) && weekdays.every((d) => !set.has(d))) return 'weekends';
-  const arr = Array.from(set).sort((a, b) => MON_FIRST_ORDER.indexOf(a) - MON_FIRST_ORDER.indexOf(b));
-  return arr.join(',');
+  if (isEqual(set, WEEKDAYS)) return 'weekdays';
+  if (isEqual(set, WEEKENDS)) return 'weekends';
+
+  return [...set]
+    .sort((a, b) => MON_FIRST_ORDER.indexOf(a) - MON_FIRST_ORDER.indexOf(b))
+    .join(',');
 }
 
 /* ========================================================================== */
