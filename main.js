@@ -466,6 +466,71 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     new Notice('✓ All quest data has been reset!');
   }
 
+  /* ----------------------------- Import/Export ---------------------------- */
+  async exportData() {
+    try {
+      const data = JSON.stringify(this.questLog, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `QuestLog-Export-${todayStr()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      new Notice('✓ Quest data exported successfully!');
+    } catch (err) {
+      console.error('Export error:', err);
+      new Notice('❌ Failed to export data. Check console for details.');
+    }
+  }
+
+  async importData(jsonContent) {
+    try {
+      const imported = JSON.parse(jsonContent);
+
+      // Validate basic structure
+      if (!imported || typeof imported !== 'object') {
+        throw new Error('Invalid data structure');
+      }
+
+      // Validate required fields
+      if (!Array.isArray(imported.quests) || !Array.isArray(imported.completions)) {
+        throw new Error('Missing required fields: quests or completions');
+      }
+
+      // Confirm before overwriting
+      const ok = await this.showConfirmDialog(
+        '⚠️ Import Quest Data',
+        'This will replace all current quest data with the imported data. Continue?'
+      );
+
+      if (!ok) return;
+
+      // Stop any active timers before importing
+      await this.autoPauseActiveQuest();
+
+      // Replace data
+      this.questLog = imported;
+
+      // Ensure all required fields exist
+      this.questLog.quests ??= [];
+      this.questLog.completions ??= [];
+      this.questLog.player ??= { level: 1, xp: 0 };
+      this.questLog.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
+      this.questLog.day ??= todayStr(this.settings.dailyResetHour);
+
+      await this.commit();
+      this.updateRibbonLabel();
+
+      new Notice('✓ Quest data imported successfully!');
+    } catch (err) {
+      console.error('Import error:', err);
+      new Notice(`❌ Failed to import data: ${err.message}`);
+    }
+  }
+
   /* ------------------------------ Reports --------------------------------- */
   async generateReport() {
     new Notice('📊 Generating quest report...');
@@ -1233,6 +1298,42 @@ class QuestLogSettingTab extends PluginSettingTab {
           } else {
             new Notice('❌ Please enter a number between 0 and 23');
           }
+        }));
+
+    containerEl.createEl('h3', { text: '💾 Backup & Restore' });
+
+    new Setting(containerEl)
+      .setName('Export Data')
+      .setDesc('Download all quest data as a JSON file for backup')
+      .addButton((btn) => btn
+        .setButtonText('Export Data')
+        .setCta()
+        .onClick(() => this.plugin.exportData()));
+
+    new Setting(containerEl)
+      .setName('Import Data')
+      .setDesc('Restore quest data from a previously exported JSON file. This will replace all current data.')
+      .addButton((btn) => btn
+        .setButtonText('Import Data')
+        .setWarning()
+        .onClick(() => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json,application/json';
+          input.onchange = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+              await this.plugin.importData(event.target.result);
+            };
+            reader.onerror = () => {
+              new Notice('❌ Failed to read file');
+            };
+            reader.readAsText(file);
+          };
+          input.click();
         }));
 
     containerEl.createEl('h3', { text: '⚠️ Danger Zone' });
