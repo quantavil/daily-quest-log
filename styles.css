@@ -9,7 +9,7 @@
   --quest-warning: #f59e0b;
   --quest-danger: #ef4444;
   --quest-grad-135: linear-gradient(135deg, var(--quest-brand-cyan), var(--quest-brand-purple));
-  
+
   /* Use Obsidian theme variables for base colors */
   --quest-bg-primary: var(--background-primary);
   --quest-bg-secondary: var(--background-secondary);
@@ -20,7 +20,7 @@
   --quest-text-faint: var(--text-faint);
   --quest-border: var(--background-modifier-border);
   --quest-border-hover: var(--background-modifier-border-hover);
-  
+
   /* Keep unique styling values */
   --quest-shadow: 0 2px 12px rgba(0, 0, 0, .4);
   --quest-focus-ring: 0 0 0 2px rgba(0, 217, 255, .3);
@@ -348,9 +348,30 @@
 }
 
 .quest-item--locked {
-  pointer-events: none;
-  opacity: .4;
+  opacity: .5;
 }
+
+.quest-item--locked .quest-checkbox {
+  pointer-events: none;
+}
+
+.quest-item--locked .quest-controls {
+  pointer-events: none;
+}
+
+.quest-item--locked .quest-drag-handle {
+  pointer-events: none;
+  opacity: .2;
+}
+.quest-item--locked .quest-name--editable {
+  pointer-events: auto;
+  cursor: text;
+}
+
+.quest-lock-overlay {
+  pointer-events: none;  
+}
+
 
 .quest-item--completed {
   background: rgba(16, 185, 129, .06);
@@ -513,9 +534,19 @@
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-4px);
+  }
+
+  75% {
+    transform: translateX(4px);
+  }
 }
 
 .quest-estimate {
@@ -1242,7 +1273,10 @@
    ============================================================================ */
 
 @media (prefers-reduced-motion:reduce) {
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     animation-duration: .01ms !important;
     transition-duration: .01ms !important;
   }

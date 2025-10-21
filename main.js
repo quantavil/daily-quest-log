@@ -775,9 +775,14 @@ class QuestView extends ItemView {
     }
 
     const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox' });
-    checkbox.checked = isCompleted; checkbox.disabled = locked || isCompleted;
+    checkbox.checked = isCompleted;
+    checkbox.disabled = locked || isCompleted;
     checkbox.setAttribute('aria-label', `Complete ${quest.name}`);
-    if (!locked && !isCompleted) checkbox.addEventListener('change', async () => { if (checkbox.checked) await this.plugin.completeQuest(quest); });
+    if (!locked && !isCompleted) {
+      checkbox.addEventListener('change', async () => {
+        if (checkbox.checked) await this.plugin.completeQuest(quest);
+      });
+    }
 
     const info = item.createDiv({ cls: 'quest-info' });
     const nameEl = info.createDiv({ cls: 'quest-name' });
@@ -803,7 +808,9 @@ class QuestView extends ItemView {
         nameEl.addEventListener('dblclick', startInlineEdit);
 
         let pressTimer = null;
-        nameEl.addEventListener('touchstart', () => { pressTimer = setTimeout(() => { startInlineEdit(new Event('custom')); pressTimer = null; }, 500); });
+        nameEl.addEventListener('touchstart', () => {
+          pressTimer = setTimeout(() => { startInlineEdit(new Event('custom')); pressTimer = null; }, 500);
+        });
         nameEl.addEventListener('touchend', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
         nameEl.addEventListener('touchmove', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
       }
@@ -831,10 +838,22 @@ class QuestView extends ItemView {
       }
     }
 
-    if (locked) item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' }).innerHTML = '🔒';
-    if (isEditing) this.attachInlineEditor(item, {
-      name: quest.name, category: quest.category, estimateMinutes: quest.estimateMinutes ?? null, schedule: quest.schedule || 'weekdays',
-    }, false, quest.id);
+    // IMPORTANT: make overlay ignore pointer events so clicks reach the name/input
+    if (locked) {
+      const overlay = item.createDiv({ cls: 'quest-lock-overlay', title: 'Not scheduled for today' });
+      overlay.innerHTML = '🔒';
+      overlay.style.pointerEvents = 'none';       // <- allows editing
+      overlay.setAttribute('aria-hidden', 'true'); // accessibility + safety
+    }
+
+    if (isEditing) {
+      this.attachInlineEditor(item, {
+        name: quest.name,
+        category: quest.category,
+        estimateMinutes: quest.estimateMinutes ?? null,
+        schedule: quest.schedule || 'weekdays',
+      }, false, quest.id);
+    }
 
     this.domIndex.set(quest.id, { estimateEl, itemEl: item, quest });
   }
