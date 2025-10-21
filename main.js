@@ -1,5 +1,5 @@
 /**
- * Daily Quest Log — optimized/refactored for readability, correctness, and fewer lines
+ * Daily Quest Log — simplified date handling, fixes, and ordering
  * Requires: Obsidian API
  */
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
@@ -50,8 +50,8 @@ const RANK_FOR = (lvl) => RANKS.find((r) => lvl >= r.minLevel && lvl <= r.maxLev
 /* UTILITIES                                                                  */
 /* ========================================================================== */
 
-const toLocalYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const todayStr = () => toLocalYMD(new Date());
+const toLocalDMY = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+const todayStr = () => toLocalDMY(new Date());
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const safeParse = (str, fallback = null) => { try { return JSON.parse(str); } catch { return fallback; } };
 const genId = (len = 12) => {
@@ -70,7 +70,7 @@ const formatTime = (minutes) => {
 };
 
 /* ========================================================================== */
-/* SCHEDULE UTILS — centralized                                               */
+/* SCHEDULE UTILS — simplified (no specific date parsing)                     */
 /* ========================================================================== */
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // Date.getDay(): 0=Sun..6=Sat
@@ -83,18 +83,7 @@ function parseSchedule(raw) {
   if (s === 'weekdays') return { kind: 'weekdays', days: new Set(['mon', 'tue', 'wed', 'thu', 'fri']) };
   if (s === 'weekends') return { kind: 'weekends', days: new Set(['sat', 'sun']) };
 
-  // Accept YYYY-MM-DD or DD-MM-YYYY for specific date schedules
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
-    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    return { kind: 'date', date: toLocalYMD(d), days: new Set([DAY_KEYS[d.getDay()]]) };
-  }
-  m = s.match(/^(\d{2})-((\d{2}))-(\d{4})$/); // keep dd-mm-yyyy compatibility
-  if (m) {
-    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
-    return { kind: 'date', date: toLocalYMD(d), days: new Set([DAY_KEYS[d.getDay()]]) };
-  }
-
+  // Only day-of-week tokens and ranges, e.g., "mon,wed,fri" or "mon-fri" (wrap allowed: "fri-mon")
   const tokens = s.split(/[\s,]+/).filter(Boolean);
   const days = new Set();
   const isKey = (k) => Object.prototype.hasOwnProperty.call(DAY_TO_INDEX, k);
@@ -121,7 +110,6 @@ function isScheduledOnDate(schedule, date = new Date()) {
   if (parsed.kind === 'daily') return true;
   if (parsed.kind === 'weekdays') { const d = date.getDay(); return d >= 1 && d <= 5; }
   if (parsed.kind === 'weekends') { const d = date.getDay(); return d === 0 || d === 6; }
-  if (parsed.kind === 'date') return parsed.date === toLocalYMD(date);
   const todayKey = DAY_KEYS[date.getDay()];
   return parsed.days.has(todayKey);
 }
@@ -209,8 +197,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async ensureDailyRollover(init = false) {
     const t = todayStr();
     if (this.questLog.day !== t) {
-      await this.autoPauseActiveQuest();
-      this.questLog.timerState = { activeQuestId: null, startTime: null, pausedSessions: {} };
+      await this.autoPauseActiveQuest(); // move active elapsed into pausedSessions
+      this.questLog.timerState.activeQuestId = null;
+      this.questLog.timerState.startTime = null;
       this.questLog.day = t;
       await this.commit();
     } else if (init && !this.questLog.day) {
@@ -225,7 +214,11 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   /* ------------------------------- CRUD ----------------------------------- */
-  getActiveQuests() { return this.questLog.quests.filter((q) => !q.archived); }
+  getActiveQuests() {
+    return this.questLog.quests
+      .filter((q) => !q.archived)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
 
   async createQuest({ name, category, schedule, estimateMinutes }) {
     const quest = {
@@ -471,7 +464,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const last30Days = Array.from({ length: 30 }, (_, i) => {
       const d = new Date(today); d.setDate(d.getDate() - (29 - i));
-      const ds = toLocalYMD(d);
+      const ds = toLocalDMY(d);
       const x = totals.byDate[ds] || { count: 0, xp: 0, minutes: 0 };
       return { date: ds, ...x };
     });
