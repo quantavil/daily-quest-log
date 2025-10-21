@@ -102,6 +102,14 @@
   font-size: 1.5rem;
   line-height: 1;
   filter: drop-shadow(0 1px 4px currentColor);
+  flex-shrink: 0;
+}
+
+.rank-compact__info {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 1;
 }
 
 .rank-compact__level {
@@ -109,6 +117,15 @@
   font-weight: 700;
   color: var(--text-secondary);
   font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  white-space: nowrap;
+}
+
+.rank-compact__name {
+  font-size: .65rem;
+  font-weight: 600;
+  letter-spacing: .3px;
+  opacity: .9;
+  white-space: nowrap;
 }
 
 /* Row 2: XP Bar with stats overlay + Add button */
@@ -548,35 +565,36 @@
    INLINE EDITOR
    ============================================================================ */
 
-.quest-editor{
-  grid-column:1 / -1;
-  overflow:hidden;
-  max-height:0;
-  transition:max-height 220ms ease;
-  border-top:1px dashed var(--border);
-  margin-top:var(--space-sm);
+.quest-editor {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 220ms ease;
+  border-top: 1px dashed var(--border);
+  margin-top: var(--space-sm);
 }
 
 /* When expanded, allow overflow for buttons */
 .quest-item--editing .quest-editor,
-.quest-item--new .quest-editor{
-  overflow:visible;
+.quest-item--new .quest-editor {
+  overflow: visible;
 }
 
-.quest-editor__zone{
-  padding-top:var(--space-sm);
+.quest-editor__zone {
+  padding-top: var(--space-sm);
 }
 
-.quest-editor__zone.zone3{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:var(--space-sm);
-  padding-top:var(--space-md);
-  padding-bottom:var(--space-sm);
-  position:relative;
-  z-index:10;
+.quest-editor__zone.zone3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  padding-bottom: var(--space-sm);
+  position: relative;
+  z-index: 10;
 }
+
 .form-group-compact {
   margin-bottom: var(--space-sm);
 }
@@ -1025,8 +1043,16 @@
     font-size: 1.25rem;
   }
 
+  .rank-compact__info {
+    gap: 3px;
+  }
+
   .rank-compact__level {
     font-size: .7rem;
+  }
+
+  .rank-compact__name {
+    font-size: .6rem;
   }
 
   /* Keep progress row HORIZONTAL on mobile */
@@ -1128,8 +1154,16 @@
     font-size: 1.1rem;
   }
 
+  .rank-compact__info {
+    gap: 2px;
+  }
+
   .rank-compact__level {
     font-size: .65rem;
+  }
+
+  .rank-compact__name {
+    font-size: .55rem;
   }
 
   .xp-stats-overlay {

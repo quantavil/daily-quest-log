@@ -585,8 +585,11 @@ class QuestView extends ItemView {
 
     const rankCompact = headerTop.createDiv({ cls: 'rank-compact' });
     rankCompact.innerHTML = `
-  <span class="rank-compact__icon" style="color:${rank.color};text-shadow:0 0 12px ${rank.color}80" title="${rank.name}">${rank.icon}</span>
-  <span class="rank-compact__level">Lv${player.level}</span>
+  <span class="rank-compact__icon" style="color:${rank.color};text-shadow:0 0 12px ${rank.color}80">${rank.icon}</span>
+  <div class="rank-compact__info">
+    <span class="rank-compact__level">Lv${player.level}</span>
+    <span class="rank-compact__name" style="color:${rank.color}">${rank.name}</span>
+  </div>
 `;
 
     // Row 2: XP Bar with embedded stats + Add button
