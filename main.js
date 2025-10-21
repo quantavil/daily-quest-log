@@ -13,11 +13,15 @@ const QUEST_LOG_FILE = 'QuestLog.json';
 
 const DEFAULT_SETTINGS = {
   questLogPath: QUEST_LOG_FILE,
+  dailyResetHour: 0, // 0-23, hour when day resets (0 = midnight)
+};
+
+// XP & Leveling constants (fixed, not user-configurable)
+const XP_CONFIG = {
   xpPerMinute: 1,
   flatXp: 10,
   levelingBase: 100,
   levelingExponent: 1.5,
-  dailyResetHour: 0, // 0-23, hour when day resets (0 = midnight)
 };
 
 const RANKS = [
@@ -369,8 +373,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   /* -------------------------- Completion & XP ----------------------------- */
   calculateXP(estimateMinutes, actualMinutes) {
     return estimateMinutes && estimateMinutes > 0
-      ? Math.round(Math.max(estimateMinutes, actualMinutes) * this.settings.xpPerMinute)
-      : this.settings.flatXp;
+      ? Math.round(Math.max(estimateMinutes, actualMinutes) * XP_CONFIG.xpPerMinute)
+      : XP_CONFIG.flatXp;
   }
 
   awardXP(xp) {
@@ -390,8 +394,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   getXPForNextLevel(level) {
-    const { levelingBase, levelingExponent } = this.settings;
-    return Math.round(levelingBase * Math.pow(level, levelingExponent));
+    return Math.round(XP_CONFIG.levelingBase * Math.pow(level, XP_CONFIG.levelingExponent));
   }
 
   async completeQuest(quest) {
@@ -793,7 +796,8 @@ class QuestView extends ItemView {
       setTimeout(() => nameInput.focus(), 50);
     } else {
       nameEl.setText(quest.name);
-      if (!locked && !isCompleted) {
+      // Allow editing even for locked items (other days), but not for completed items
+      if (!isCompleted) {
         const startInlineEdit = (e) => { e.preventDefault(); this.openInlineEdit(quest); };
         nameEl.addClass('quest-name--editable');
         nameEl.addEventListener('dblclick', startInlineEdit);
@@ -1211,38 +1215,6 @@ class QuestLogSettingTab extends PluginSettingTab {
             new Notice('❌ Please enter a number between 0 and 23');
           }
         }));
-
-    containerEl.createEl('h3', { text: 'XP & Leveling' });
-
-    new Setting(containerEl)
-      .setName('XP per minute')
-      .setDesc('XP earned per minute when quest has an estimate')
-      .addText((t) => t.setPlaceholder('1')
-        .setValue(String(this.plugin.settings.xpPerMinute))
-        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.xpPerMinute = n; await this.plugin.saveSettings(); } }));
-
-    new Setting(containerEl)
-      .setName('Flat XP (no estimate)')
-      .setDesc('XP earned when quest has no time estimate')
-      .addText((t) => t.setPlaceholder('10')
-        .setValue(String(this.plugin.settings.flatXp))
-        .onChange(async (v) => { const n = parseInt(v, 10); if (!isNaN(n) && n > 0) { this.plugin.settings.flatXp = n; await this.plugin.saveSettings(); } }));
-
-    new Setting(containerEl)
-      .setName('Leveling base')
-      .setDesc('Base XP for leveling formula')
-      .addText((t) => t.setPlaceholder('100')
-        .setValue(String(this.plugin.settings.levelingBase))
-        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingBase = n; await this.plugin.saveSettings(); } }));
-
-    new Setting(containerEl)
-      .setName('Leveling exponent')
-      .setDesc('Exponent for leveling formula (higher = steeper curve)')
-      .addText((t) => t.setPlaceholder('1.5')
-        .setValue(String(this.plugin.settings.levelingExponent))
-        .onChange(async (v) => { const n = parseFloat(v); if (!isNaN(n) && n > 0) { this.plugin.settings.levelingExponent = n; await this.plugin.saveSettings(); } }));
-
-    containerEl.createEl('p', { text: 'XP for next level = round(base × level^exponent)', cls: 'setting-item-description' });
 
     containerEl.createEl('h3', { text: '⚠️ Danger Zone' });
     new Setting(containerEl)
