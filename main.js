@@ -1,5 +1,5 @@
 /**
- * Daily Quest Log — simplified date handling, fixes, and ordering
+ * Daily Quest Log — Fixed version with all improvements
  * Requires: Obsidian API
  */
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS = {
   flatXp: 10,
   levelingBase: 100,
   levelingExponent: 1.5,
+  dailyResetHour: 0, // 0-23, hour when day resets (0 = midnight)
 };
 
 const RANKS = [
@@ -51,13 +52,24 @@ const RANK_FOR = (lvl) => RANKS.find((r) => lvl >= r.minLevel && lvl <= r.maxLev
 /* ========================================================================== */
 
 const toLocalDMY = (d) => {
-  // Local ISO-like date key: YYYY-MM-DD
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 };
-const todayStr = () => toLocalDMY(new Date());
+
+const todayStr = (resetHour = 0) => {
+  const now = new Date();
+  const adjustedDate = new Date(now);
+
+  // If current hour is before reset hour, consider it previous day
+  if (now.getHours() < resetHour) {
+    adjustedDate.setDate(adjustedDate.getDate() - 1);
+  }
+
+  return toLocalDMY(adjustedDate);
+};
+
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const safeParse = (str, fallback = null) => { try { return JSON.parse(str); } catch { return fallback; } };
 const genId = (len = 12) => {
@@ -76,10 +88,10 @@ const formatTime = (minutes) => {
 };
 
 /* ========================================================================== */
-/* SCHEDULE UTILS — simplified (no specific date parsing)                     */
+/* SCHEDULE UTILS                                                             */
 /* ========================================================================== */
 
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // Date.getDay(): 0=Sun..6=Sat
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAY_TO_INDEX = Object.fromEntries(DAY_KEYS.map((k, i) => [k, i]));
 const MON_FIRST_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -89,7 +101,6 @@ function parseSchedule(raw) {
   if (s === 'weekdays') return { kind: 'weekdays', days: new Set(['mon', 'tue', 'wed', 'thu', 'fri']) };
   if (s === 'weekends') return { kind: 'weekends', days: new Set(['sat', 'sun']) };
 
-  // Only day-of-week tokens and ranges, e.g., "mon,wed,fri" or "mon-fri" (wrap allowed: "fri-mon")
   const tokens = s.split(/[\s,]+/).filter(Boolean);
   const days = new Set();
   const isKey = (k) => Object.prototype.hasOwnProperty.call(DAY_TO_INDEX, k);
@@ -172,7 +183,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       completions: [],
       player: { level: 1, xp: 0 },
       timerState: { activeQuestId: null, startTime: null, pausedSessions: {} },
-      day: todayStr(),
+      day: todayStr(this.settings.dailyResetHour),
     };
   }
 
@@ -186,7 +197,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     ql.completions ??= [];
     ql.player ??= { level: 1, xp: 0 };
     ql.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
-    ql.day ??= todayStr();
+    ql.day ??= todayStr(this.settings.dailyResetHour);
   }
 
   async saveQuestLog() {
@@ -201,17 +212,17 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   /* --------------------------- Daily rollover ----------------------------- */
   async ensureDailyRollover(init = false) {
-    const t = todayStr();
+    const t = todayStr(this.settings.dailyResetHour);
     if (this.questLog.day !== t) {
-      await this.autoPauseActiveQuest(); // move active elapsed into pausedSessions
-      // Reset daily timers (no carryover)
+      await this.autoPauseActiveQuest();
       this.questLog.timerState.activeQuestId = null;
       this.questLog.timerState.startTime = null;
       this.questLog.timerState.pausedSessions = {};
       this.questLog.day = t;
       await this.commit();
     } else if (init && !this.questLog.day) {
-      this.questLog.day = t; await this.commit();
+      this.questLog.day = t;
+      await this.commit();
     }
   }
 
@@ -232,11 +243,11 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const quest = {
       id: genId(),
       name: name.trim(),
-      category: (category || 'Uncategorized').trim(),
+      category: (category || 'uncategorized').trim().toLowerCase(),
       schedule: (schedule || 'daily').trim(),
       estimateMinutes: Number.isFinite(estimateMinutes) && estimateMinutes > 0 ? Math.floor(estimateMinutes) : null,
       order: this.getActiveQuests().length,
-      createdAt: todayStr(),
+      createdAt: todayStr(this.settings.dailyResetHour),
     };
     this.questLog.quests.push(quest);
     await this.commit();
@@ -247,10 +258,16 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async updateQuest(id, changes) {
     const q = this.questLog.quests.find((x) => x.id === id);
     if (!q) return void new Notice('❌ Quest not found');
+
+    if ('category' in changes) {
+      changes.category = (changes.category || 'uncategorized').trim().toLowerCase();
+    }
+
     if ('estimateMinutes' in changes) {
       const v = changes.estimateMinutes;
       changes.estimateMinutes = Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
     }
+
     Object.assign(q, changes);
     await this.commit();
     new Notice('✓ Quest updated');
@@ -270,13 +287,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (s.activeQuestId === id) { s.activeQuestId = null; s.startTime = null; }
     delete s.pausedSessions[id];
 
-    // Remove associated completions so deleted quests don't appear in reports
     this.questLog.completions = this.questLog.completions.filter((c) => c.questId !== id);
-
-    // Remove the quest entirely
     this.questLog.quests.splice(idx, 1);
 
-    // Reindex the order
     this.questLog.quests
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -292,7 +305,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const base = inCat.length ? Math.min(...inCat.map((q) => q.order ?? 0)) : 0;
     questIds.forEach((id, i) => { const q = list.find((x) => x.id === id); if (q) q.order = base + i; });
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
-    await this.saveQuestLog(); // avoid full rerender thrash; caller triggers on dragend end
+    await this.saveQuestLog();
   }
 
   /* ----------------------------- Scheduling ------------------------------- */
@@ -302,7 +315,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   isScheduledToday(schedule) { return isScheduledOnDate(schedule, new Date()); }
 
   isCompletedToday(questId) {
-    const t = todayStr();
+    const t = todayStr(this.settings.dailyResetHour);
     return this.questLog.completions.some((c) => c.questId === questId && c.date === t);
   }
 
@@ -390,7 +403,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     this.questLog.completions.push({
       questId: id,
-      date: todayStr(),
+      date: todayStr(this.settings.dailyResetHour),
       minutesSpent: Math.round(minutes),
       xpEarned: xp,
     });
@@ -404,7 +417,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async uncompleteQuest(questId) {
-    const t = todayStr();
+    const t = todayStr(this.settings.dailyResetHour);
     const completion = this.questLog.completions.find((c) => c.questId === questId && c.date === t);
     if (!completion) return;
 
@@ -500,7 +513,11 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   buildReportMarkdown(stats) {
-    const now = todayStr(), h = Math.floor(stats.totalMinutes / 60), m = Math.floor(stats.totalMinutes % 60), rank = RANK_FOR(stats.player.level);
+    const now = todayStr(this.settings.dailyResetHour);
+    const h = Math.floor(stats.totalMinutes / 60);
+    const m = Math.floor(stats.totalMinutes % 60);
+    const rank = RANK_FOR(stats.player.level);
+
     return `# 📊 Quest Report
 *Generated: ${now}*
 
@@ -598,10 +615,8 @@ class QuestView extends ItemView {
     const xpPercent = clamp((player.xp / xpForNext) * 100, 0, 100);
     const rank = RANK_FOR(player.level);
 
-    // Header - Ultra Compact
     const header = container.createDiv({ cls: 'quest-view-header' });
 
-    // Row 1: Title + Rank (compact, inline)
     const headerTop = header.createDiv({ cls: 'quest-header-top-compact' });
     headerTop.createEl('h2', { text: "Today's Quests", cls: 'quest-title-compact' });
 
@@ -614,7 +629,6 @@ class QuestView extends ItemView {
   </div>
 `;
 
-    // Row 2: XP Bar with embedded stats + Add button
     const todayQuests = this.plugin.getTodayQuests();
     const completedCount = todayQuests.filter((q) => this.plugin.isCompletedToday(q.id)).length;
     const unfinished = todayQuests.filter((q) => !this.plugin.isCompletedToday(q.id));
@@ -628,7 +642,6 @@ class QuestView extends ItemView {
 
     const progressRow = header.createDiv({ cls: 'quest-progress-row' });
 
-    // XP Bar container with stats overlay
     const xpContainer = progressRow.createDiv({ cls: 'xp-container-compact' });
     const xpBar = xpContainer.createDiv({ cls: 'xp-bar-compact' });
     const xpFill = xpBar.createDiv({ cls: 'xp-fill-compact' });
@@ -667,7 +680,6 @@ class QuestView extends ItemView {
     addBtnCompact.title = 'Add Quest';
     addBtnCompact.addEventListener('click', () => this.openInlineAdd());
 
-    // Inline "new" editor
     if (this.editingId === 'new') this.renderInlineNew(container);
 
     const hasActiveQuest = !!this.plugin.questLog.timerState.activeQuestId;
@@ -675,7 +687,7 @@ class QuestView extends ItemView {
     const activeToday = todayQuests.filter((q) => !this.plugin.isCompletedToday(q.id));
     const categoriesMap = new Map();
     for (const q of activeToday) {
-      const cat = q.category || 'Uncategorized';
+      const cat = q.category || 'uncategorized';
       if (!categoriesMap.has(cat)) categoriesMap.set(cat, []);
       categoriesMap.get(cat).push(q);
     }
@@ -888,7 +900,7 @@ class QuestView extends ItemView {
   }
 
   renderCompletedSection(container) {
-    const t = todayStr();
+    const t = todayStr(this.plugin.settings.dailyResetHour);
     const completedToday = this.plugin.questLog.completions.filter((c) => c.date === t).reverse();
     if (!completedToday.length) return;
 
@@ -949,26 +961,31 @@ class QuestView extends ItemView {
       return;
     }
 
-    const category = (this.editingDraft?.category || '').trim() || 'Uncategorized';
+    const category = (this.editingDraft?.category || '').trim().toLowerCase() || 'uncategorized';
     const estimateMinutes = this.editingDraft?.estimateMinutes ?? null;
     const schedule = selectedDaysToSchedule(selectedDays);
     const wasNew = questId === 'new' || !questId;
 
     const editor = item.querySelector('.quest-editor');
-    const apply = async () => {
+
+    // Clear editing state immediately
+    this.editingId = null;
+    this.editingDraft = null;
+
+    if (editor) {
+      this.animateCollapse(editor, async () => {
+        if (wasNew) {
+          await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
+        } else {
+          await this.plugin.updateQuest(questId, { name, category, schedule, estimateMinutes });
+        }
+      });
+    } else {
       if (wasNew) {
         await this.plugin.createQuest({ name, category, schedule, estimateMinutes });
       } else {
         await this.plugin.updateQuest(questId, { name, category, schedule, estimateMinutes });
       }
-    };
-
-    const finalize = () => { this.editingId = null; this.editingDraft = null; };
-
-    if (editor) {
-      this.animateCollapse(editor, async () => { await apply(); finalize(); });
-    } else {
-      await apply(); finalize();
     }
   }
 
@@ -981,13 +998,55 @@ class QuestView extends ItemView {
 
     const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
     categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
+
+    // Get existing categories (normalized, unique)
+    const existingCategories = [...new Set(
+      this.plugin.questLog.quests.map(q => q.category || 'uncategorized')
+    )].sort();
+
+    // Create datalist for autocomplete
+    const datalistId = `category-list-${genId(6)}`;
+    const datalist = categoryGroup.createEl('datalist', { attr: { id: datalistId } });
+    existingCategories.forEach(cat => {
+      datalist.createEl('option', { value: cat });
+    });
+
     const categoryInput = categoryGroup.createEl('input', {
       type: 'text',
       value: this.editingDraft?.category ?? draft.category ?? '',
       cls: 'form-input-beautiful',
-      attr: { placeholder: 'e.g., Health' },
+      attr: {
+        placeholder: 'e.g., health',
+        list: datalistId,
+        autocomplete: 'off'
+      },
     });
-    categoryInput.addEventListener('input', () => { (this.editingDraft ||= {}).category = categoryInput.value; });
+
+    // Handle input changes
+    categoryInput.addEventListener('input', () => {
+      (this.editingDraft ||= {}).category = categoryInput.value.trim().toLowerCase();
+    });
+
+    // Handle Tab key for autocomplete
+    categoryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        const currentValue = categoryInput.value.trim().toLowerCase();
+        if (currentValue) {
+          // Find first matching category
+          const match = existingCategories.find(cat =>
+            cat.toLowerCase().startsWith(currentValue)
+          );
+
+          if (match) {
+            e.preventDefault();
+            categoryInput.value = match;
+            (this.editingDraft ||= {}).category = match;
+            // Move cursor to end
+            categoryInput.setSelectionRange(match.length, match.length);
+          }
+        }
+      }
+    });
 
     const estimateGroup = row.createDiv({ cls: 'form-group-compact' });
     estimateGroup.createEl('label', { text: 'Time (min)', cls: 'form-label-compact' });
@@ -1036,7 +1095,6 @@ class QuestView extends ItemView {
         e.preventDefault();
         const isActive = selectedDays.has(d.key);
 
-        // Prevent deselecting the last remaining day
         if (isActive && selectedDays.size === 1) {
           new Notice('At least one day must be selected.');
           btn.toggleClass('shake', true);
@@ -1135,6 +1193,24 @@ class QuestLogSettingTab extends PluginSettingTab {
       .addText((t) => t.setPlaceholder('QuestLog.json')
         .setValue(this.plugin.settings.questLogPath)
         .onChange(async (v) => { this.plugin.settings.questLogPath = v || QUEST_LOG_FILE; await this.plugin.saveSettings(); }));
+
+    new Setting(containerEl)
+      .setName('Daily reset hour')
+      .setDesc('Hour when the day resets (0-23). For example: 4 = 4:00 AM. Times before this hour count as previous day.')
+      .addText((t) => t
+        .setPlaceholder('0')
+        .setValue(String(this.plugin.settings.dailyResetHour))
+        .onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (!isNaN(n) && n >= 0 && n <= 23) {
+            this.plugin.settings.dailyResetHour = n;
+            await this.plugin.saveSettings();
+            await this.plugin.ensureDailyRollover(true);
+            new Notice(`Daily reset time set to ${n}:00`);
+          } else {
+            new Notice('❌ Please enter a number between 0 and 23');
+          }
+        }));
 
     containerEl.createEl('h3', { text: 'XP & Leveling' });
 
