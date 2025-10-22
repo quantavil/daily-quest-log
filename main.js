@@ -476,6 +476,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async completeQuest(quest) {
     const id = quest.id;
+    if (quest.archived) return void new Notice('❌ Cannot complete archived quest.');
     if (this.isCompletedToday(id)) return void new Notice('Already completed today.');
     const minutes = this.getTotalMinutes(id), xp = this.calculateXP(quest.estimateMinutes, minutes);
     this.awardXP(xp);
@@ -955,9 +956,9 @@ class QuestView extends ItemView {
 
     const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox' });
     checkbox.checked = state.isCompleted;
-    checkbox.disabled = locked || state.isCompleted;
+    checkbox.disabled = locked || state.isCompleted || state.isActive;
     checkbox.setAttribute('aria-label', `Complete ${quest.name}`);
-    if (!locked && !state.isCompleted) {
+    if (!locked && !state.isCompleted && !state.isActive) {
       checkbox.addEventListener('change', async () => {
         if (checkbox.checked) await this.plugin.completeQuest(quest);
       });
