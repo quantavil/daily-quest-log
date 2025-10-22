@@ -128,18 +128,30 @@ function selectedDaysToSchedule(selectedDays) {
 
 module.exports = class DailyQuestLogPlugin extends Plugin {
   async onload() {
+    // 1) Settings must be loaded first
     await this.loadSettings();
-    await this.loadQuestLog();
-    await this.ensureDailyRollover(true);
-    await this.handleTimerRecovery();
 
+    // 2) Safe in-memory state so early renders don’t crash
+    if (!this.questLog) this.initializeQuestLog();
+
+    // 3) Register UI early so Obsidian can restore the leaf
     this.registerView(VIEW_TYPE_QUESTS, (leaf) => new QuestView(leaf, this));
     this.ribbonEl = this.addRibbonIcon('target', 'Quest Log', () => this.activateView());
     this.updateRibbonLabel();
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
     this.registerInterval(window.setInterval(() => this.ensureDailyRollover(), 60_000));
+
+    // 4) Defer disk I/O until workspace/vault is fully ready
+    this.app.workspace.onLayoutReady(async () => {
+      await this.loadQuestLog();
+      await this.ensureDailyRollover(true);
+      await this.handleTimerRecovery();
+      this.updateRibbonLabel();
+      this.refreshView();
+    });
   }
+
 
   async onunload() { await this.autoPauseActiveQuest(); }
 
@@ -147,29 +159,41 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async saveSettings() { await this.saveData(this.settings); }
 
   initializeQuestLog() {
+    const resetHour = this.settings?.dailyResetHour ?? DEFAULT_SETTINGS.dailyResetHour;
     this.questLog = {
-      quests: [], completions: [], player: { level: 1, xp: 0 },
+      quests: [],
+      completions: [],
+      player: { level: 1, xp: 0 },
       timerState: { activeQuestId: null, startTime: null, pausedSessions: {} },
-      day: todayStr(this.settings.dailyResetHour),
+      day: todayStr(resetHour),
     };
   }
 
+
   async loadQuestLog() {
-    const file = this.app.vault.getAbstractFileByPath(this.settings.questLogPath);
+    const path = this.settings?.questLogPath ?? DEFAULT_SETTINGS.questLogPath ?? QUEST_LOG_FILE;
+    const file = this.app.vault.getAbstractFileByPath(path);
     if (file instanceof TFile) this.questLog = safeParse(await this.app.vault.read(file), null);
     if (!this.questLog || typeof this.questLog !== 'object') this.initializeQuestLog();
+
+    const resetHour = this.settings?.dailyResetHour ?? DEFAULT_SETTINGS.dailyResetHour;
     const ql = this.questLog;
-    ql.quests ??= []; ql.completions ??= []; ql.player ??= { level: 1, xp: 0 };
+    ql.quests ??= [];
+    ql.completions ??= [];
+    ql.player ??= { level: 1, xp: 0 };
     ql.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
-    ql.day ??= todayStr(this.settings.dailyResetHour);
+    ql.day ??= todayStr(resetHour);
   }
 
+
   async saveQuestLog() {
-    const path = this.settings.questLogPath, content = JSON.stringify(this.questLog, null, 2);
+    const path = this.settings?.questLogPath ?? DEFAULT_SETTINGS.questLogPath ?? QUEST_LOG_FILE;
+    const content = JSON.stringify(this.questLog, null, 2);
     const file = this.app.vault.getAbstractFileByPath(path);
     if (file instanceof TFile) await this.app.vault.modify(file, content);
     else await this.app.vault.create(path, content);
   }
+
 
   async commit() { await this.saveQuestLog(); this.refreshView(); }
 
@@ -712,7 +736,7 @@ class QuestView extends ItemView {
 
     const item = container.createDiv({ cls: 'quest-item' });
     item.dataset.questId = quest.id;
-    
+
     const classes = {
       'quest-item--active': state.isActive,
       'quest-item--paused': state.isPaused,
@@ -741,7 +765,7 @@ class QuestView extends ItemView {
 
     const info = item.createDiv({ cls: 'quest-info' });
     const nameEl = info.createDiv({ cls: 'quest-name' });
-    
+
     if (isEditing) {
       const nameInput = nameEl.createEl('input', {
         type: 'text', value: this.editingDraft?.name || quest.name, cls: 'quest-name-input-inline',
@@ -817,10 +841,10 @@ class QuestView extends ItemView {
       const remaining = quest.estimateMinutes - state.totalMinutes;
       const absText = formatTime(Math.abs(remaining));
       const prefix = state.isActive ? '⏱ ' : (state.isPaused ? '⏸ ' : '');
-      const text = (state.isActive || state.isPaused) 
-        ? (remaining >= 0 ? `${prefix}${absText}` : `${prefix}-${absText}`) 
+      const text = (state.isActive || state.isPaused)
+        ? (remaining >= 0 ? `${prefix}${absText}` : `${prefix}-${absText}`)
         : `Est: ${formatTime(quest.estimateMinutes)}`;
-      
+
       if (state.isActive) div.addClass('quest-estimate--running');
       if (state.isPaused) div.addClass('quest-estimate--paused');
       if (remaining < 0) div.addClass('quest-estimate--overtime');
@@ -949,7 +973,7 @@ class QuestView extends ItemView {
 
     const existingCategories = [...new Set(this.plugin.questLog.quests.map(q => q.category || 'uncategorized'))].sort();
     const datalistId = `category-list-${genId(6)}`;
-    
+
     const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
     categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
     const datalist = categoryGroup.createEl('datalist', { attr: { id: datalistId } });
@@ -991,7 +1015,7 @@ class QuestView extends ItemView {
 
     const presetsInline = scheduleHeader.createDiv({ cls: 'schedule-presets-inline' });
     const selectedDays = this.editingDraft?.selectedDays || parseSelectedDaysFromSchedule(draft.schedule || 'weekdays');
-    
+
     const updateDayButtons = () => btns.forEach(({ btn, key }) => {
       const active = selectedDays.has(key);
       btn.toggleClass('active', active);
@@ -1073,9 +1097,9 @@ class QuestView extends ItemView {
   iconBtn(icon, title) {
     const btn = document.createElement('button');
     btn.type = 'button'; btn.className = 'btn-icon'; btn.title = title; btn.setAttribute('aria-label', title);
-    const svgs = { 
-      play: '<path d="M8 5v14l11-7z" fill="currentColor"/>', 
-      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>' 
+    const svgs = {
+      play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
+      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>'
     };
     btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
     return btn;
