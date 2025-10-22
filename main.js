@@ -260,14 +260,23 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.ribbonEl?.setAttribute('aria-label', `Quest Log • ${rank.icon} ${rank.name} (Lv${level})`);
   }
 
-  getActiveQuests() { return this.questLog.quests.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); }
+  getActiveQuests() {
+    return this.questLog.quests
+      .filter((q) => !q.archived) // NEW: exclude archived from active lists
+      .slice()
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
 
   async createQuest({ name, category, schedule, estimateMinutes }) {
     const quest = {
-      id: genId(), name: name.trim(), category: (category || 'uncategorized').trim().toLowerCase(),
+      id: genId(),
+      name: name.trim(),
+      category: (category || 'uncategorized').trim().toLowerCase(),
       schedule: (schedule || 'daily').trim(),
       estimateMinutes: Number.isFinite(estimateMinutes) && estimateMinutes > 0 ? Math.floor(estimateMinutes) : null,
-      order: this.getActiveQuests().length, createdAt: todayStr(this.settings.dailyResetHour),
+      order: this.getActiveQuests().length,
+      createdAt: todayStr(this.settings.dailyResetHour),
+      archived: false, // NEW: default not archived
     };
     this.questLog.quests.push(quest);
     await this.commit();
@@ -302,6 +311,30 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.questLog.quests.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
     await this.commit();
     new Notice('✓ Quest deleted');
+  }
+
+  async archiveQuest(id) {
+    const q = this.questLog.quests.find((x) => x.id === id);
+    if (!q) return void new Notice('❌ Quest not found');
+    if (q.archived) return void new Notice('Already archived.');
+
+    // Pause if running
+    const s = this.questLog.timerState;
+    if (s.activeQuestId === id) await this.pauseQuest(id);
+
+    q.archived = true;
+    await this.commit();
+    new Notice(`📦 Archived: ${q.name}`);
+  }
+
+  async unarchiveQuest(id) {
+    const q = this.questLog.quests.find((x) => x.id === id);
+    if (!q) return void new Notice('❌ Quest not found');
+    if (!q.archived) return void new Notice('Quest is not archived.');
+
+    q.archived = false;
+    await this.commit();
+    new Notice(`⏎ Unarchived: ${q.name}`);
   }
 
   async reorderQuests(questIds, category) {
@@ -342,9 +375,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async startQuest(questId) {
     if (this.isCompletedToday(questId)) return void new Notice('Already completed today.');
+    const q = this.questLog.quests.find((x) => x.id === questId);
+    if (!q) return void new Notice('❌ Quest not found');
+    if (q.archived) return void new Notice('📦 This quest is archived. Unarchive it to start.');
+
     const s = this.questLog.timerState;
     if (s.activeQuestId && s.activeQuestId !== questId) await this.pauseQuest(s.activeQuestId);
-    s.activeQuestId = questId; s.startTime = Date.now();
+    s.activeQuestId = questId;
+    s.startTime = Date.now();
     await this.commit();
   }
 
@@ -787,6 +825,50 @@ class QuestView extends ItemView {
       for (const q of otherQuests) this.renderQuestItem(otherList, q, { draggable: false, locked: true });
     }
 
+    // Archived section
+    const archived = this.plugin.questLog.quests.filter((q) => q.archived);
+    if (archived.length) {
+      container.createDiv({ cls: 'quest-section-title quest-section-archived', text: '📦 Archived' });
+      const list = container.createDiv({ cls: 'quest-archived-list' });
+      for (const q of archived) {
+        const item = list.createDiv({ cls: 'quest-archived-item' });
+        item.createDiv({ cls: 'quest-archived-name', text: q.name });
+
+        const controls = item.createDiv({ cls: 'quest-archived-controls' });
+
+        // Unarchive icon button
+        const unarchiveBtn = this.createElement('button', {
+          cls: 'btn-archived-icon',
+          attr: { type: 'button', 'aria-label': 'Unarchive quest', title: 'Unarchive' }
+        });
+        unarchiveBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 3h18v5H3z"/>
+      <path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/>
+      <path d="M12 12v5m-3-3l3-3 3 3"/>
+    </svg>`;
+        unarchiveBtn.addEventListener('click', async () => {
+          await this.plugin.unarchiveQuest(q.id);
+          this.render();
+        });
+
+        // Delete icon button
+        const deleteBtn = this.createElement('button', {
+          cls: 'btn-archived-icon btn-archived-icon--danger',
+          attr: { type: 'button', 'aria-label': 'Delete quest', title: 'Delete permanently' }
+        });
+        deleteBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/>
+    </svg>`;
+        deleteBtn.addEventListener('click', async () => {
+          await this.plugin.deleteQuest(q.id);
+          this.render();
+        });
+
+        controls.appendChild(unarchiveBtn);
+        controls.appendChild(deleteBtn);
+      }
+    }
+
     this.renderCompletedSection(container);
 
     const footer = container.createDiv({ cls: 'quest-footer' });
@@ -1156,8 +1238,24 @@ class QuestView extends ItemView {
 
     const z3 = editor.createDiv({ cls: 'quest-editor__zone zone3' });
     if (!isNew) {
+      // Archive button with SVG icon
+      const archiveBtn = z3.createEl('button', {
+        cls: 'btn-archive-beautiful',
+        attr: { type: 'button', title: 'Archive quest (keep history)' }
+      });
+      archiveBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <rect x="3" y="3" width="18" height="5" rx="1"/>
+    <path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/>
+    <path d="M10 12h4"/>
+  </svg>`;
+      archiveBtn.addEventListener('click', async () => {
+        await this.plugin.archiveQuest(questId);
+        this.closeInlineEdit();
+      });
+
+      // Delete button
       const deleteBtn = z3.createEl('button', { cls: 'btn-delete-beautiful', attr: { type: 'button', title: 'Delete quest' } });
-      deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       deleteBtn.addEventListener('click', async () => { await this.plugin.deleteQuest(questId); this.closeInlineEdit(); });
     }
 

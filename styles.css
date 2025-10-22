@@ -601,6 +601,33 @@
 .btn-delete-beautiful svg { width: 14px; height: 14px; }
 .btn-delete-beautiful:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
 
+.btn-archive-beautiful {
+  padding: 6px var(--quest-space-sm);
+  border: 1px solid var(--quest-border);
+  background: transparent;
+  border-radius: var(--quest-radius-sm);
+  color: var(--quest-text-secondary);
+  font-size: .875rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, transform .15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-archive-beautiful svg { 
+  width: 14px; 
+  height: 14px; 
+  flex-shrink: 0;
+}
+.btn-archive-beautiful:hover { 
+  color: var(--quest-brand-cyan);
+  border-color: var(--quest-brand-cyan);
+  background: rgba(0, 217, 255, .08);
+  transform: translateY(-1px);
+}
+
 .footer-right { display: flex; gap: var(--quest-space-sm); margin-left: auto; }
 
 /* ============================================================================
@@ -672,6 +699,89 @@
   border: 2px solid var(--quest-bg-primary);
 }
 .quest-view-container::-webkit-scrollbar-thumb:hover { border-width: 1px; }
+
+/* ============================================================================
+   ARCHIVED SECTION
+   ============================================================================ */
+
+.quest-section-archived { 
+  color: var(--quest-text-faint); 
+  border-left-color: var(--quest-text-faint); 
+}
+
+.quest-archived-list { 
+  display: flex; 
+  flex-direction: column; 
+  gap: var(--quest-space-sm); 
+}
+
+.quest-archived-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--quest-space-md);
+  padding: 8px var(--quest-space-md);
+  background: var(--quest-bg-secondary);
+  border: 1px solid var(--quest-border);
+  border-radius: var(--quest-radius-sm);
+  opacity: 0.6;
+  transition: opacity .15s, border-color .15s;
+}
+.quest-archived-item:hover { 
+  opacity: 1; 
+  border-color: var(--quest-border-hover); 
+}
+
+.quest-archived-name { 
+  flex: 1;
+  font-size: .875rem; 
+  font-weight: 600;
+  color: var(--quest-text-secondary); 
+  text-decoration: line-through;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-archived-controls { 
+  display: flex; 
+  gap: 6px; 
+  flex-shrink: 0;
+}
+
+.btn-archived-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--quest-border);
+  background: transparent;
+  border-radius: var(--quest-radius-sm);
+  color: var(--quest-text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s, background-color .15s, border-color .15s, transform .15s;
+  flex-shrink: 0;
+}
+.btn-archived-icon:hover {
+  color: var(--quest-brand-cyan);
+  border-color: var(--quest-brand-cyan);
+  background: rgba(0, 217, 255, .08);
+  transform: translateY(-1px);
+}
+.btn-archived-icon svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.btn-archived-icon--danger:hover {
+  color: var(--quest-danger);
+  border-color: var(--quest-danger);
+  background: rgba(239, 68, 68, .08);
+}
 
 /* ============================================================================
    RESPONSIVE
