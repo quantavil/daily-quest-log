@@ -86,6 +86,33 @@ const normDay = (v) => {
 };
 
 /* ========================================================================== */
+/* ICONS (ADD THIS)                                                           */
+/* ========================================================================== */
+
+const ICONS = Object.freeze({
+  // Buttons
+  play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
+  pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+
+  // Stats
+  bolt: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+
+  // Actions
+  archive: '<rect x="3" y="3" width="18" height="5" rx="1"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  unarchive: '<path d="M3 3h18v5H3z"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M12 12v5m-3-3l3-3 3 3"/>',
+  trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/>',
+});
+
+function svgIcon(name, { size = 16, stroke = 'currentColor', strokeWidth = 2, fill = 'none', attrs = 'stroke-linecap="round" stroke-linejoin="round"' } = {}) {
+  const body = ICONS[name];
+  if (!body) return '';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${attrs} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`;
+}
+
+/* ========================================================================== */
 /* SCHEDULE UTILITIES                                                         */
 /* ========================================================================== */
 
@@ -765,21 +792,15 @@ class QuestView extends ItemView {
     const xpStats = xpContainer.createDiv({ cls: 'xp-stats-overlay' });
     xpStats.innerHTML = `
   <div class="xp-stat">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-    </svg>
+    ${svgIcon('bolt', { size: 12 })}
     <span>${player.xp}/${xpForNext}</span>
   </div>
   <div class="xp-stat xp-stat--success">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
+    ${svgIcon('check', { size: 12 })}
     <span>${completedCount}/${todayQuests.length}</span>
   </div>
   <div class="xp-stat xp-stat--time">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-    </svg>
+    ${svgIcon('clock', { size: 12 })}
     <span class="quest-total-remaining">${formatTime(totalRemaining)}</span>
   </div>`;
 
@@ -789,7 +810,7 @@ class QuestView extends ItemView {
       cls: 'btn-add-compact',
       attr: { type: 'button', 'aria-label': 'Add Quest' },
       title: 'Add Quest',
-      html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>'
+      html: svgIcon('plus', { size: 14, strokeWidth: 2.5 })
     });
     addBtnCompact.addEventListener('click', () => this.openInlineAdd());
     progressRow.appendChild(addBtnCompact);
@@ -841,11 +862,7 @@ class QuestView extends ItemView {
           cls: 'btn-archived-icon',
           attr: { type: 'button', 'aria-label': 'Unarchive quest', title: 'Unarchive' }
         });
-        unarchiveBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M3 3h18v5H3z"/>
-      <path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/>
-      <path d="M12 12v5m-3-3l3-3 3 3"/>
-    </svg>`;
+        unarchiveBtn.innerHTML = svgIcon('unarchive', { size: 16 });
         unarchiveBtn.addEventListener('click', async () => {
           await this.plugin.unarchiveQuest(q.id);
           this.render();
@@ -856,9 +873,7 @@ class QuestView extends ItemView {
           cls: 'btn-archived-icon btn-archived-icon--danger',
           attr: { type: 'button', 'aria-label': 'Delete quest', title: 'Delete permanently' }
         });
-        deleteBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/>
-    </svg>`;
+        deleteBtn.innerHTML = svgIcon('trash', { size: 16 });
         deleteBtn.addEventListener('click', async () => {
           await this.plugin.deleteQuest(q.id);
           this.render();
@@ -1243,11 +1258,7 @@ class QuestView extends ItemView {
         cls: 'btn-archive-beautiful',
         attr: { type: 'button', title: 'Archive quest (keep history)' }
       });
-      archiveBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <rect x="3" y="3" width="18" height="5" rx="1"/>
-    <path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/>
-    <path d="M10 12h4"/>
-  </svg>`;
+      archiveBtn.innerHTML = svgIcon('archive', { size: 14 });
       archiveBtn.addEventListener('click', async () => {
         await this.plugin.archiveQuest(questId);
         this.closeInlineEdit();
@@ -1255,7 +1266,7 @@ class QuestView extends ItemView {
 
       // Delete button
       const deleteBtn = z3.createEl('button', { cls: 'btn-delete-beautiful', attr: { type: 'button', title: 'Delete quest' } });
-      deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      deleteBtn.innerHTML = svgIcon('trash', { size: 16 });
       deleteBtn.addEventListener('click', async () => { await this.plugin.deleteQuest(questId); this.closeInlineEdit(); });
     }
 
@@ -1287,12 +1298,11 @@ class QuestView extends ItemView {
 
   iconBtn(icon, title) {
     const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'btn-icon'; btn.title = title; btn.setAttribute('aria-label', title);
-    const svgs = {
-      play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
-      pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>'
-    };
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${svgs[icon] || ''}</svg>`;
+    btn.type = 'button';
+    btn.className = 'btn-icon';
+    btn.title = title;
+    btn.setAttribute('aria-label', title);
+    btn.innerHTML = svgIcon(icon, { size: 16 });
     return btn;
   }
 }
