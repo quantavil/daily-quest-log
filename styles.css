@@ -6,6 +6,7 @@
    - Inline editor reveal fixed
    - Breakpoints consolidated (768px, 480px)
    - Repeated sizes centralized as CSS variables
+   - Delete/archive buttons unified; legacy classes aliased
    ============================================================================ */
 
 :root {
@@ -44,6 +45,7 @@
   --quest-xp-height: 28px;
   --quest-add-btn-size: 32px;
   --quest-icon-btn-size: 32px;
+  --quest-icon-btn-size-sm: 28px; /* small icon buttons (archived list) */
   --quest-icon-size: 16px;
 }
 
@@ -506,9 +508,10 @@
 }
 
 /* ============================================================================
-   BUTTONS
+   BUTTONS (Unified)
    ============================================================================ */
 
+/* Icon buttons */
 .btn-icon {
   width: var(--quest-icon-btn-size);
   height: var(--quest-icon-btn-size);
@@ -521,7 +524,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, transform .15s;
   flex-shrink: 0;
 }
 .btn-icon:hover { border-color: var(--quest-border-hover); background: var(--quest-bg-hover); color: var(--quest-text-primary); }
@@ -537,91 +540,98 @@
 }
 .btn-icon.accent:hover { background: rgba(245, 158, 11, .15); }
 
+/* Archived list icon buttons — aliased to .btn-icon with small size */
+.btn-archived-icon {
+  width: var(--quest-icon-btn-size-sm);
+  height: var(--quest-icon-btn-size-sm);
+  padding: 0;
+  border: 1px solid var(--quest-border);
+  background: var(--quest-bg-secondary);
+  border-radius: var(--quest-radius-sm);
+  color: var(--quest-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, transform .15s;
+  flex-shrink: 0;
+}
+.btn-archived-icon svg { width: 16px; height: 16px; flex-shrink: 0; }
+.btn-archived-icon:hover {
+  color: var(--quest-brand-cyan);
+  border-color: var(--quest-brand-cyan);
+  background: rgba(0, 217, 255, .08);
+  transform: translateY(-1px);
+}
+/* Danger variant for any icon-style destructive action */
+.btn-icon--danger:hover,
+.btn-archived-icon--danger:hover {
+  color: var(--quest-danger);
+  border-color: var(--quest-danger);
+  background: rgba(239, 68, 68, .08);
+}
+
+/* Text buttons — shared foundation (de-duplicates styles) */
 .btn-primary,
-.btn-save-beautiful {
+.btn-save-beautiful,
+.btn-secondary,
+.btn-cancel-beautiful,
+.btn-danger,
+.btn-delete-beautiful,
+.btn-archive-beautiful {
   padding: var(--quest-space-sm) var(--quest-space-lg);
-  border: 0;
-  background: var(--quest-grad-135);
   border-radius: var(--quest-radius-md);
-  color: #fff;
   font-size: .875rem;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  transition: transform .15s, filter .15s, box-shadow .15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: transform .15s, filter .15s, color .15s, background-color .15s, border-color .15s, box-shadow .15s;
+}
+
+/* Primary */
+.btn-primary,
+.btn-save-beautiful {
+  border: 0;
+  background: var(--quest-grad-135);
+  color: #fff;
 }
 .btn-primary:hover,
 .btn-save-beautiful:hover { transform: translateY(-1px); filter: brightness(1.1); }
 
+/* Secondary */
 .btn-secondary,
 .btn-cancel-beautiful {
-  padding: var(--quest-space-sm) var(--quest-space-lg);
   border: 1px solid var(--quest-border);
   background: transparent;
-  border-radius: var(--quest-radius-md);
   color: var(--quest-text-secondary);
-  font-size: .875rem;
   font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s;
 }
 .btn-secondary:hover,
 .btn-cancel-beautiful:hover { border-color: var(--quest-border-hover); background: var(--quest-bg-hover); color: var(--quest-text-primary); }
 
-.btn-danger {
-  padding: var(--quest-space-sm) var(--quest-space-lg);
-  border: 1px solid rgba(239, 68, 68, .3);
-  background: transparent;
-  border-radius: var(--quest-radius-md);
-  color: var(--quest-danger);
-  font-size: .875rem;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s;
-}
-.btn-danger:hover { background: var(--quest-danger); border-color: var(--quest-danger); color: #fff; }
-
+/* Danger — unified delete style (covers .btn-delete-beautiful) */
+.btn-danger,
 .btn-delete-beautiful {
-  padding: 6px var(--quest-space-sm);
   border: 1px solid rgba(239, 68, 68, .3);
   background: transparent;
-  border-radius: var(--quest-radius-sm);
-  color: var(--quest-text-secondary);
-  font-size: .875rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  color: var(--quest-danger);
 }
-.btn-delete-beautiful svg { width: 14px; height: 14px; }
-.btn-delete-beautiful:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+.btn-danger:hover,
+.btn-delete-beautiful:hover { background: var(--quest-danger); border-color: var(--quest-danger); color: #fff; }
+.btn-danger svg,
+.btn-delete-beautiful svg { width: 14px; height: 14px; flex-shrink: 0; }
 
+/* Archive/Unarchive — unified hover logic for text buttons */
 .btn-archive-beautiful {
-  padding: 6px var(--quest-space-sm);
   border: 1px solid var(--quest-border);
   background: transparent;
-  border-radius: var(--quest-radius-sm);
   color: var(--quest-text-secondary);
-  font-size: .875rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, transform .15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  border-radius: var(--quest-radius-sm);
 }
-.btn-archive-beautiful svg { 
-  width: 14px; 
-  height: 14px; 
-  flex-shrink: 0;
-}
-.btn-archive-beautiful:hover { 
+.btn-archive-beautiful:hover {
   color: var(--quest-brand-cyan);
   border-color: var(--quest-brand-cyan);
   background: rgba(0, 217, 255, .08);
@@ -748,39 +758,6 @@
   display: flex; 
   gap: 6px; 
   flex-shrink: 0;
-}
-
-.btn-archived-icon {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--quest-border);
-  background: transparent;
-  border-radius: var(--quest-radius-sm);
-  color: var(--quest-text-secondary);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: color .15s, background-color .15s, border-color .15s, transform .15s;
-  flex-shrink: 0;
-}
-.btn-archived-icon:hover {
-  color: var(--quest-brand-cyan);
-  border-color: var(--quest-brand-cyan);
-  background: rgba(0, 217, 255, .08);
-  transform: translateY(-1px);
-}
-.btn-archived-icon svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.btn-archived-icon--danger:hover {
-  color: var(--quest-danger);
-  border-color: var(--quest-danger);
-  background: rgba(239, 68, 68, .08);
 }
 
 /* ============================================================================
