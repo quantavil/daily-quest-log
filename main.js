@@ -167,31 +167,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.updateRibbonLabel();
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
-    this.registerInterval(window.setInterval(() => this.ensureDailyRollover(), 60_000));
-
-    // NOTE: don't attempt async auto-pause here; just try to persist what we have.
-    this.registerDomEvent(window, 'beforeunload', () => {
-      // Synchronously pause any active quest BEFORE the app closes
-      const s = this.questLog?.timerState;
-      if (s?.activeQuestId && s.startTime) {
-        const elapsed = this.getActiveElapsedMinutes();
-        s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + elapsed;
-        s.activeQuestId = null;
-        s.startTime = null;
-      }
-      // Attempt to save (onunload will also save as backup)
-      void this.saveQuestLog();
-    });
+    // Check every minute for daily rollover (stops active timers at reset hour)
+    this.registerInterval(window.setInterval(() => {
+      this.ensureDailyRollover();
+    }, 60_000));
     // 4) Defer disk I/O until workspace/vault is fully ready
     this.app.workspace.onLayoutReady(async () => {
       await this.loadQuestLog();
-
-      // Recovery must run BEFORE daily rollover so any running timer is reconciled first.
-      await this.handleTimerRecovery();
-
-      // Now safely apply daily rollover rules (won't wipe paused sessions).
       await this.ensureDailyRollover(true);
-
       this.updateRibbonLabel();
       this.refreshView();
     });
@@ -199,96 +182,71 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async onunload() {
     try {
-      await this.autoPauseActiveQuest();
       await this.saveQuestLog();
     } catch (err) {
       console.error('QuestLog onunload save failed:', err);
     }
   }
 
-  async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
+  async loadSettings() {
+    this.settings = await this.loadData() || DEFAULT_SETTINGS;
+  }
   async saveSettings() { await this.saveData(this.settings); }
 
   initializeQuestLog() {
-    const resetHour = this.settings?.dailyResetHour ?? DEFAULT_SETTINGS.dailyResetHour;
     this.questLog = {
       quests: [],
       completions: [],
       player: { level: 1, xp: 0 },
       timerState: { activeQuestId: null, startTime: null, pausedSessions: {} },
-      day: todayStr(resetHour),
+      day: todayStr(this.settings.dailyResetHour),
     };
   }
 
   async loadQuestLog() {
-    const path = this.settings?.questLogPath ?? DEFAULT_SETTINGS.questLogPath ?? QUEST_LOG_FILE;
+    const path = this.settings.questLogPath;
     const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) this.questLog = safeParse(await this.app.vault.read(file), null);
-    if (!this.questLog || typeof this.questLog !== 'object') this.initializeQuestLog();
 
-    const resetHour = this.settings?.dailyResetHour ?? DEFAULT_SETTINGS.dailyResetHour;
-    const ql = this.questLog;
-
-    ql.quests ??= [];
-    ql.completions ??= [];
-    ql.player ??= { level: 1, xp: 0 };
-    ql.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
-    if (!ql.timerState.pausedSessions || typeof ql.timerState.pausedSessions !== 'object') {
-      ql.timerState.pausedSessions = {};
+    if (file instanceof TFile) {
+      this.questLog = safeParse(await this.app.vault.read(file), null);
     }
-    ql.day ??= todayStr(resetHour);
 
-    // Sanitize player level/xp on load (covers any previously-bad data)
-    const p = ql.player;
-    let lvl = Number.isFinite(Number(p.level)) ? Math.floor(Number(p.level)) : 1;
-    if (lvl < 1) lvl = 1;
-    p.level = lvl;
-
-    let xp = Number.isFinite(Number(p.xp)) ? Math.floor(Number(p.xp)) : 0;
-    if (xp < 0) xp = 0;
-    p.xp = xp;
-
-    // Normalize XP against current level without notices
-    let guard = 0;
-    let need = this.getXPForNextLevel(p.level);
-    while (need > 0 && p.xp >= need && guard < 10000) {
-      p.xp -= need;
-      p.level++;
-      guard++;
-      need = this.getXPForNextLevel(p.level);
+    if (!this.questLog) {
+      this.initializeQuestLog();
     }
   }
 
   async saveQuestLog() {
-    const path = this.settings?.questLogPath ?? DEFAULT_SETTINGS.questLogPath ?? QUEST_LOG_FILE;
+    const path = this.settings.questLogPath;
     const content = JSON.stringify(this.questLog, null, 2);
     const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) await this.app.vault.modify(file, content);
-    else await this.app.vault.create(path, content);
-  }
 
+    if (file instanceof TFile) {
+      await this.app.vault.modify(file, content);
+    } else {
+      await this.app.vault.create(path, content);
+    }
+  }
   async commit() { await this.saveQuestLog(); this.refreshView(); }
 
   async ensureDailyRollover(init = false) {
     const t = todayStr(this.settings.dailyResetHour);
 
     if (this.questLog.day !== t) {
-      // Capture any running time into pausedSessions first
-      await this.autoPauseActiveQuest();
-
-      // Do NOT drop pausedSessions; only clear active fields
       const s = this.questLog.timerState;
-      if (s) {
-        s.activeQuestId = null;
-        s.startTime = null;
-        // s.pausedSessions is intentionally preserved
-      }
+      const wasActive = s.activeQuestId;
+
+      // Clear ALL timer state - no rollover
+      s.activeQuestId = null;
+      s.startTime = null;
+      s.pausedSessions = {};
 
       this.questLog.day = t;
       await this.commit();
-    } else if (init && !this.questLog.day) {
-      this.questLog.day = t;
-      await this.commit();
+
+      if (wasActive) {
+        new Notice('⏰ Daily reset! All active timers cleared.', 4000);
+      }
     }
   }
 
@@ -308,12 +266,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const quest = {
       id: genId(),
       name: name.trim(),
-      category: (category || 'uncategorized').trim().toLowerCase(),
-      schedule: (schedule || 'daily').trim(),
-      estimateMinutes: Number.isFinite(estimateMinutes) && estimateMinutes > 0 ? Math.floor(estimateMinutes) : null,
+      category: category.trim().toLowerCase(),
+      schedule: schedule.trim(),
+      estimateMinutes: estimateMinutes > 0 ? Math.floor(estimateMinutes) : null,
       order: this.getActiveQuests().length,
       createdAt: todayStr(this.settings.dailyResetHour),
-      archived: false, // NEW: default not archived
+      archived: false,
     };
     this.questLog.quests.push(quest);
     await this.commit();
@@ -324,11 +282,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async updateQuest(id, changes) {
     const q = this.questLog.quests.find((x) => x.id === id);
     if (!q) return void new Notice('❌ Quest not found');
-    if ('category' in changes) changes.category = (changes.category || 'uncategorized').trim().toLowerCase();
-    if ('estimateMinutes' in changes) {
-      const v = changes.estimateMinutes;
-      changes.estimateMinutes = Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+
+    if ('category' in changes) {
+      changes.category = changes.category.trim().toLowerCase();
     }
+    if ('estimateMinutes' in changes) {
+      changes.estimateMinutes = changes.estimateMinutes > 0 ? Math.floor(changes.estimateMinutes) : null;
+    }
+
     Object.assign(q, changes);
     await this.commit();
     new Notice('✓ Quest updated');
@@ -401,10 +362,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   getActiveElapsedMinutes() {
-    const { activeQuestId, startTime } = this.questLog.timerState || {};
-    return !activeQuestId || !startTime ? 0 : Math.max(0, (Date.now() - startTime) / 60000);
+    const { activeQuestId, startTime } = this.questLog.timerState;
+    return activeQuestId && startTime ? Math.max(0, (Date.now() - startTime) / 60000) : 0;
   }
-
   getTotalMinutes(questId) {
     const s = this.questLog.timerState, paused = s.pausedSessions[questId] || 0;
     return s.activeQuestId === questId ? paused + this.getActiveElapsedMinutes() : paused;
@@ -432,23 +392,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async resumeQuest(questId) { return this.startQuest(questId); }
-
-  async autoPauseActiveQuest() {
-    const s = this.questLog.timerState;
-    if (!s.activeQuestId) return;
-    s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + this.getActiveElapsedMinutes();
-    s.activeQuestId = null; s.startTime = null;
-    await this.saveQuestLog();
-  }
-
-  async handleTimerRecovery() {
-    const s = this.questLog.timerState;
-    if (s.activeQuestId && s.startTime) {
-      s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + (Date.now() - s.startTime) / 60000;
-      s.activeQuestId = null; s.startTime = null;
-      await this.saveQuestLog();
-    }
-  }
 
   calculateXP(estimateMinutes, actualMinutes) {
     return estimateMinutes && estimateMinutes > 0
@@ -547,47 +490,25 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async importData(jsonContent) {
     try {
       const imported = JSON.parse(jsonContent);
-      if (!imported || typeof imported !== 'object') throw new Error('Invalid data structure');
+
+      if (!imported || typeof imported !== 'object') {
+        throw new Error('Invalid data structure');
+      }
       if (!Array.isArray(imported.quests) || !Array.isArray(imported.completions)) {
         throw new Error('Missing required fields: quests or completions');
       }
-      if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data with the imported data. Continue?'))) return;
 
-      await this.autoPauseActiveQuest();
-
-      this.questLog = imported;
-      this.questLog.quests ??= [];
-      this.questLog.completions ??= [];
-      this.questLog.player ??= { level: 1, xp: 0 };
-      this.questLog.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
-      this.questLog.day ??= todayStr(this.settings.dailyResetHour);
-
-      // Sanitize player level/xp
-      const p = this.questLog.player;
-      let lvl = Number.isFinite(Number(p.level)) ? Math.floor(Number(p.level)) : 1;
-      if (lvl < 1) lvl = 1;
-      p.level = lvl;
-
-      let xp = Number.isFinite(Number(p.xp)) ? Math.floor(Number(p.xp)) : 0;
-      if (xp < 0) xp = 0;
-      p.xp = xp;
-
-      // Normalize XP against current level without notices
-      let guard = 0;
-      let need = this.getXPForNextLevel(p.level);
-      while (need > 0 && p.xp >= need && guard < 10000) {
-        p.xp -= need;
-        p.level++;
-        guard++;
-        need = this.getXPForNextLevel(p.level);
+      if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data. Continue?'))) {
+        return;
       }
 
+      this.questLog = imported;
       await this.commit();
       this.updateRibbonLabel();
       new Notice('✓ Quest data imported successfully!');
     } catch (err) {
       console.error('Import error:', err);
-      new Notice(`❌ Failed to import data: ${err.message}`);
+      new Notice(`❌ Failed to import: ${err.message}`);
     }
   }
 
@@ -615,24 +536,23 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const totalCompleted = completions.length;
 
     const totals = completions.reduce((acc, c) => {
-      acc.totalXP += c.xpEarned || 0;
-      acc.totalMinutes += c.minutesSpent || 0;
+      acc.totalXP += c.xpEarned;
+      acc.totalMinutes += c.minutesSpent;
 
       const d = (acc.byDate[c.date] ||= { count: 0, xp: 0, minutes: 0 });
       d.count++;
-      d.xp += c.xpEarned || 0;
-      d.minutes += c.minutesSpent || 0;
+      d.xp += c.xpEarned;
+      d.minutes += c.minutesSpent;
 
       const bq = (acc.byQuest[c.questId] ||= { count: 0, xp: 0, minutes: 0 });
       bq.count++;
-      bq.xp += c.xpEarned || 0;
-      bq.minutes += c.minutesSpent || 0;
+      bq.xp += c.xpEarned;
+      bq.minutes += c.minutesSpent;
 
       return acc;
     }, { totalXP: 0, totalMinutes: 0, byDate: {}, byQuest: {} });
 
-    // Build last 30 reset-aligned day keys
-    const resetHour = this.settings?.dailyResetHour ?? 0;
+    const resetHour = this.settings.dailyResetHour;
     const todayKey = todayStr(resetHour);
     const [y, m, d] = todayKey.split('-').map(Number);
     const anchor = new Date(y, m - 1, d); // local midnight of the reset-aligned date
