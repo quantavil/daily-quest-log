@@ -189,7 +189,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = await this.loadData() || DEFAULT_SETTINGS;
+    const loaded = await this.loadData();
+    this.settings = { ...DEFAULT_SETTINGS, ...(loaded || {}) };
   }
   async saveSettings() { await this.saveData(this.settings); }
 
@@ -208,10 +209,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const file = this.app.vault.getAbstractFileByPath(path);
 
     if (file instanceof TFile) {
-      this.questLog = safeParse(await this.app.vault.read(file), null);
+      const parsed = safeParse(await this.app.vault.read(file), null);
+      // Add basic validation
+      if (parsed && Array.isArray(parsed.quests) && parsed.player && parsed.timerState) {
+        this.questLog = parsed;
+      }
     }
 
-    if (!this.questLog) {
+    if (!this.questLog || !this.questLog.quests) {
       this.initializeQuestLog();
     }
   }
@@ -306,7 +311,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     delete s.pausedSessions[id];
     this.questLog.completions = this.questLog.completions.filter((c) => c.questId !== id);
     this.questLog.quests.splice(idx, 1);
-    this.questLog.quests.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
+    this.questLog.quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
     await this.commit();
     new Notice('✓ Quest deleted');
   }
@@ -336,10 +341,13 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async reorderQuests(questIds, category) {
-    const list = this.questLog.quests.slice(), inCat = list.filter((q) => q.category === category);
+    const inCat = this.questLog.quests.filter((q) => q.category === category);
     const base = inCat.length ? Math.min(...inCat.map((q) => q.order ?? 0)) : 0;
-    questIds.forEach((id, i) => { const q = list.find((x) => x.id === id); if (q) q.order = base + i; });
-    list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
+    questIds.forEach((id, i) => {
+      const q = this.questLog.quests.find((x) => x.id === id);
+      if (q) q.order = base + i;
+    });
+    this.questLog.quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
     await this.commit();
   }
 
