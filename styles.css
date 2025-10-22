@@ -56,8 +56,17 @@
 }
 
 /* Base / resets */
-*, *::before, *::after { box-sizing: border-box; }
-*:focus-visible { outline: none; box-shadow: var(--quest-focus-ring); }
+.quest-view-container,
+.quest-view-container *,
+.quest-view-container *::before,
+.quest-view-container *::after {
+  box-sizing: border-box;
+}
+
+.quest-view-container *:focus-visible {
+  outline: none;
+  box-shadow: var(--quest-focus-ring);
+}
 
 /* ============================================================================
    CONTAINER
@@ -846,7 +855,10 @@
    ============================================================================ */
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  .quest-view-container,
+  .quest-view-container *,
+  .quest-view-container *::before,
+  .quest-view-container *::after {
     animation-duration: .01ms !important;
     transition-duration: .01ms !important;
   }
