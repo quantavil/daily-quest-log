@@ -979,7 +979,7 @@ class QuestView extends ItemView {
       setTimeout(() => nameInput.focus(), 50);
     } else {
       nameEl.setText(quest.name);
-      if (!state.isCompleted) {
+      if (!state.isCompleted && !state.isActive) {
         const startInlineEdit = (e) => { e.preventDefault(); this.openInlineEdit(quest); };
         nameEl.addClass('quest-name--editable');
         nameEl.addEventListener('dblclick', startInlineEdit);
