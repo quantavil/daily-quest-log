@@ -170,8 +170,18 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.registerInterval(window.setInterval(() => this.ensureDailyRollover(), 60_000));
 
     // NOTE: don't attempt async auto-pause here; just try to persist what we have.
-    this.registerDomEvent(window, 'beforeunload', () => { void this.saveQuestLog(); });
-
+    this.registerDomEvent(window, 'beforeunload', () => {
+      // Synchronously pause any active quest BEFORE the app closes
+      const s = this.questLog?.timerState;
+      if (s?.activeQuestId && s.startTime) {
+        const elapsed = this.getActiveElapsedMinutes();
+        s.pausedSessions[s.activeQuestId] = (s.pausedSessions[s.activeQuestId] || 0) + elapsed;
+        s.activeQuestId = null;
+        s.startTime = null;
+      }
+      // Attempt to save (onunload will also save as backup)
+      void this.saveQuestLog();
+    });
     // 4) Defer disk I/O until workspace/vault is fully ready
     this.app.workspace.onLayoutReady(async () => {
       await this.loadQuestLog();
