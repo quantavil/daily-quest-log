@@ -141,6 +141,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
     this.registerInterval(window.setInterval(() => this.ensureDailyRollover(), 60_000));
+    this.registerDomEvent(window, 'beforeunload', () => { void this.autoPauseActiveQuest().then(() => this.saveQuestLog()); });
 
     // 4) Defer disk I/O until workspace/vault is fully ready
     this.app.workspace.onLayoutReady(async () => {
@@ -153,7 +154,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
 
-  async onunload() { await this.autoPauseActiveQuest(); }
+  async onunload() {
+    try {
+      await this.autoPauseActiveQuest();
+      await this.saveQuestLog();
+    } catch (err) {
+      console.error('QuestLog onunload save failed:', err);
+    }
+  }
 
   async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
   async saveSettings() { await this.saveData(this.settings); }
