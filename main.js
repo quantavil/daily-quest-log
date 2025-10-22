@@ -131,7 +131,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     // 1) Settings must be loaded first
     await this.loadSettings();
 
-    // 2) Safe in-memory state so early renders don’t crash
+    // 2) Safe in-memory state so early renders don't crash
     if (!this.questLog) this.initializeQuestLog();
 
     // 3) Register UI early so Obsidian can restore the leaf
@@ -141,18 +141,24 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
     this.registerInterval(window.setInterval(() => this.ensureDailyRollover(), 60_000));
-    this.registerDomEvent(window, 'beforeunload', () => { void this.autoPauseActiveQuest().then(() => this.saveQuestLog()); });
+
+    // NOTE: don't attempt async auto-pause here; just try to persist what we have.
+    this.registerDomEvent(window, 'beforeunload', () => { void this.saveQuestLog(); });
 
     // 4) Defer disk I/O until workspace/vault is fully ready
     this.app.workspace.onLayoutReady(async () => {
       await this.loadQuestLog();
-      await this.ensureDailyRollover(true);
+
+      // Recovery must run BEFORE daily rollover so any running timer is reconciled first.
       await this.handleTimerRecovery();
+
+      // Now safely apply daily rollover rules (won't wipe paused sessions).
+      await this.ensureDailyRollover(true);
+
       this.updateRibbonLabel();
       this.refreshView();
     });
   }
-
 
   async onunload() {
     try {
@@ -177,7 +183,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     };
   }
 
-
   async loadQuestLog() {
     const path = this.settings?.questLogPath ?? DEFAULT_SETTINGS.questLogPath ?? QUEST_LOG_FILE;
     const file = this.app.vault.getAbstractFileByPath(path);
@@ -186,13 +191,36 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     const resetHour = this.settings?.dailyResetHour ?? DEFAULT_SETTINGS.dailyResetHour;
     const ql = this.questLog;
+
     ql.quests ??= [];
     ql.completions ??= [];
     ql.player ??= { level: 1, xp: 0 };
     ql.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
+    if (!ql.timerState.pausedSessions || typeof ql.timerState.pausedSessions !== 'object') {
+      ql.timerState.pausedSessions = {};
+    }
     ql.day ??= todayStr(resetHour);
-  }
 
+    // Sanitize player level/xp on load (covers any previously-bad data)
+    const p = ql.player;
+    let lvl = Number.isFinite(Number(p.level)) ? Math.floor(Number(p.level)) : 1;
+    if (lvl < 1) lvl = 1;
+    p.level = lvl;
+
+    let xp = Number.isFinite(Number(p.xp)) ? Math.floor(Number(p.xp)) : 0;
+    if (xp < 0) xp = 0;
+    p.xp = xp;
+
+    // Normalize XP against current level without notices
+    let guard = 0;
+    let need = this.getXPForNextLevel(p.level);
+    while (need > 0 && p.xp >= need && guard < 10000) {
+      p.xp -= need;
+      p.level++;
+      guard++;
+      need = this.getXPForNextLevel(p.level);
+    }
+  }
 
   async saveQuestLog() {
     const path = this.settings?.questLogPath ?? DEFAULT_SETTINGS.questLogPath ?? QUEST_LOG_FILE;
@@ -202,14 +230,23 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     else await this.app.vault.create(path, content);
   }
 
-
   async commit() { await this.saveQuestLog(); this.refreshView(); }
 
   async ensureDailyRollover(init = false) {
     const t = todayStr(this.settings.dailyResetHour);
+
     if (this.questLog.day !== t) {
+      // Capture any running time into pausedSessions first
       await this.autoPauseActiveQuest();
-      this.questLog.timerState = { activeQuestId: null, startTime: null, pausedSessions: {} };
+
+      // Do NOT drop pausedSessions; only clear active fields
+      const s = this.questLog.timerState;
+      if (s) {
+        s.activeQuestId = null;
+        s.startTime = null;
+        // s.pausedSessions is intentionally preserved
+      }
+
       this.questLog.day = t;
       await this.commit();
     } else if (init && !this.questLog.day) {
@@ -439,12 +476,36 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         throw new Error('Missing required fields: quests or completions');
       }
       if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data with the imported data. Continue?'))) return;
+
       await this.autoPauseActiveQuest();
+
       this.questLog = imported;
-      this.questLog.quests ??= []; this.questLog.completions ??= [];
+      this.questLog.quests ??= [];
+      this.questLog.completions ??= [];
       this.questLog.player ??= { level: 1, xp: 0 };
       this.questLog.timerState ??= { activeQuestId: null, startTime: null, pausedSessions: {} };
       this.questLog.day ??= todayStr(this.settings.dailyResetHour);
+
+      // Sanitize player level/xp
+      const p = this.questLog.player;
+      let lvl = Number.isFinite(Number(p.level)) ? Math.floor(Number(p.level)) : 1;
+      if (lvl < 1) lvl = 1;
+      p.level = lvl;
+
+      let xp = Number.isFinite(Number(p.xp)) ? Math.floor(Number(p.xp)) : 0;
+      if (xp < 0) xp = 0;
+      p.xp = xp;
+
+      // Normalize XP against current level without notices
+      let guard = 0;
+      let need = this.getXPForNextLevel(p.level);
+      while (need > 0 && p.xp >= need && guard < 10000) {
+        p.xp -= need;
+        p.level++;
+        guard++;
+        need = this.getXPForNextLevel(p.level);
+      }
+
       await this.commit();
       this.updateRibbonLabel();
       new Notice('✓ Quest data imported successfully!');
@@ -476,27 +537,51 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const { completions, player, quests } = this.questLog;
     const qName = Object.fromEntries(quests.map((q) => [q.id, q.name]));
     const totalCompleted = completions.length;
+
     const totals = completions.reduce((acc, c) => {
-      acc.totalXP += c.xpEarned || 0; acc.totalMinutes += c.minutesSpent || 0;
+      acc.totalXP += c.xpEarned || 0;
+      acc.totalMinutes += c.minutesSpent || 0;
+
       const d = (acc.byDate[c.date] ||= { count: 0, xp: 0, minutes: 0 });
-      d.count++; d.xp += c.xpEarned || 0; d.minutes += c.minutesSpent || 0;
+      d.count++;
+      d.xp += c.xpEarned || 0;
+      d.minutes += c.minutesSpent || 0;
+
       const bq = (acc.byQuest[c.questId] ||= { count: 0, xp: 0, minutes: 0 });
-      bq.count++; bq.xp += c.xpEarned || 0; bq.minutes += c.minutesSpent || 0;
+      bq.count++;
+      bq.xp += c.xpEarned || 0;
+      bq.minutes += c.minutesSpent || 0;
+
       return acc;
     }, { totalXP: 0, totalMinutes: 0, byDate: {}, byQuest: {} });
 
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    // Build last 30 reset-aligned day keys
+    const resetHour = this.settings?.dailyResetHour ?? 0;
+    const todayKey = todayStr(resetHour);
+    const [y, m, d] = todayKey.split('-').map(Number);
+    const anchor = new Date(y, m - 1, d); // local midnight of the reset-aligned date
+
     const last30Days = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(today); d.setDate(d.getDate() - (29 - i));
-      const ds = toLocalDMY(d), x = totals.byDate[ds] || { count: 0, xp: 0, minutes: 0 };
+      const day = new Date(anchor);
+      day.setDate(day.getDate() - (29 - i));
+      const ds = toLocalDMY(day);
+      const x = totals.byDate[ds] || { count: 0, xp: 0, minutes: 0 };
       return { date: ds, ...x };
     });
 
     const topQuests = Object.entries(totals.byQuest)
-      .sort((a, b) => b[1].count - a[1].count).slice(0, 10)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
       .map(([id, data]) => ({ id, name: qName[id] || id, ...data }));
 
-    return { player, totalCompleted, totalXP: totals.totalXP, totalMinutes: totals.totalMinutes, last30Days, topQuests };
+    return {
+      player,
+      totalCompleted,
+      totalXP: totals.totalXP,
+      totalMinutes: totals.totalMinutes,
+      last30Days,
+      topQuests
+    };
   }
 
   buildReportMarkdown(stats) {
@@ -526,7 +611,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 | Rank | Quest Name | Completions | Total XP | Total Time |
 |------|-----------|-------------|----------|------------|
-${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes / 60)}h ${Math.floor(q.minutes % 60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
+ ${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes / 60)}h ${Math.floor(q.minutes % 60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
 
 ---
 
@@ -534,7 +619,7 @@ ${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} X
 
 | Date | Quests | XP Earned | Time Spent |
 |------|--------|-----------|------------|
-${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes / 60) ? `${Math.floor(d.minutes / 60)}h ${Math.floor(d.minutes % 60)}m` : `${Math.floor(d.minutes % 60)}m`} |`).join('\n')}
+ ${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes / 60) ? `${Math.floor(d.minutes / 60)}h ${Math.floor(d.minutes % 60)}m` : `${Math.floor(d.minutes % 60)}m`} |`).join('\n')}
 `;
   }
 };
