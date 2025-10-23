@@ -1,5 +1,5 @@
 /**
- * Daily Quest Log — Optimized version
+ * Daily Quest Log — Optimized version (No backward compatibility)
  * Requires: Obsidian API
  */
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
@@ -9,8 +9,8 @@ const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = re
 /* ========================================================================== */
 
 const VIEW_TYPE_QUESTS = 'daily-quest-log-view';
-const QUEST_LOG_FILE = 'QuestLog.json';
-const DEFAULT_SETTINGS = { questLogPath: QUEST_LOG_FILE, dailyResetHour: 0 };
+const QUEST_LOG_FILE = 'daily-quest-log/questlog.json';
+const DEFAULT_SETTINGS = { dailyResetHour: 0 };
 
 const XP_CONFIG = { xpPerMinute: 1, flatXp: 10, levelingBase: 100, levelingExponent: 1.5 };
 
@@ -94,7 +94,7 @@ const normDay = (v) => {
 };
 
 /* ========================================================================== */
-/* ICONS (ADD THIS)                                                           */
+/* ICONS                                                                      */
 /* ========================================================================== */
 
 const ICONS = Object.freeze({
@@ -177,14 +177,16 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.updateRibbonLabel();
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
+
     // Check every minute for daily rollover (stops active timers at reset hour)
     this.registerInterval(window.setInterval(() => {
       this.ensureDailyRollover();
     }, 60_000));
+
     // 4) Defer disk I/O until workspace/vault is fully ready
     this.app.workspace.onLayoutReady(async () => {
       await this.loadQuestLog();
-      await this.ensureDailyRollover(true);
+      await this.ensureDailyRollover();
       this.updateRibbonLabel();
       this.refreshView();
     });
@@ -215,52 +217,57 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async loadQuestLog() {
-    const path = this.settings.questLogPath;
-    const file = this.app.vault.getAbstractFileByPath(path);
-
+    const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
     if (file instanceof TFile) {
       const parsed = safeParse(await this.app.vault.read(file), null);
-      // Add basic validation
-      if (parsed && Array.isArray(parsed.quests) && parsed.player && parsed.timerState) {
+      const valid =
+        parsed && typeof parsed === 'object' &&
+        Array.isArray(parsed.quests) &&
+        Array.isArray(parsed.completions) &&
+        parsed.player && Number.isFinite(parsed.player.level) && Number.isFinite(parsed.player.xp) &&
+        parsed.timerState && typeof parsed.timerState === 'object' &&
+        parsed.timerState.pausedSessions && typeof parsed.timerState.pausedSessions === 'object' &&
+        typeof parsed.day === 'string';
+
+      if (valid) {
         this.questLog = parsed;
+      } else {
+        console.warn('QuestLog: invalid save file, reinitializing.');
+        this.initializeQuestLog();
+        await this.saveQuestLog();
       }
     }
-
-    if (!this.questLog || !this.questLog.quests) {
-      this.initializeQuestLog();
-    }
+    if (!this.questLog || !this.questLog.quests) this.initializeQuestLog();
   }
 
   async saveQuestLog() {
-    const path = this.app.fileManager.normalizePath(this.settings.questLogPath);
-    const folderPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
-    if (folderPath) await this.ensureFolder(folderPath);
+    // Ensure folder exists
+    const folder = 'daily-quest-log';
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      await this.app.vault.createFolder(folder);
+    }
 
     const content = JSON.stringify(this.questLog, null, 2);
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) await this.app.vault.modify(file, content);
-    else await this.app.vault.create(path, content);
+    const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
+    if (file instanceof TFile) {
+      await this.app.vault.modify(file, content);
+    } else {
+      await this.app.vault.create(QUEST_LOG_FILE, content);
+    }
   }
   async commit() { await this.saveQuestLog(); this.refreshView(); }
 
-  async ensureDailyRollover(init = false) {
+  async ensureDailyRollover() {
     const t = todayStr(this.settings.dailyResetHour);
-
     if (this.questLog.day !== t) {
       const s = this.questLog.timerState;
       const wasActive = s.activeQuestId;
-
-      // Clear ALL timer state - no rollover
       s.activeQuestId = null;
       s.startTime = null;
       s.pausedSessions = {};
-
       this.questLog.day = t;
       await this.commit();
-
-      if (wasActive) {
-        new Notice('⏰ Daily reset! All active timers cleared.', 4000);
-      }
+      if (wasActive) new Notice('⏰ Daily reset! All active timers cleared.', 4000);
     }
   }
 
@@ -271,7 +278,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   getActiveQuests() {
     return this.questLog.quests
-      .filter((q) => !q.archived) // NEW: exclude archived from active lists
+      .filter((q) => !q.archived)
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }
@@ -350,15 +357,27 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async reorderQuests(questIds, category) {
-    const inCat = this.questLog.quests.filter((q) => q.category === category);
-    const base = inCat.length ? Math.min(...inCat.map((q) => q.order ?? 0)) : 0;
-    questIds.forEach((id, i) => {
-      const q = this.questLog.quests.find((x) => x.id === id);
+    const inCat = this.questLog.quests
+      .filter(q => q.category === category && !q.archived)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    const idSet = new Set(questIds);
+    const rest = inCat.filter(q => !idSet.has(q.id)).map(q => q.id);
+    const newSeq = [...questIds, ...rest];
+
+    const base = inCat.length ? Math.min(...inCat.map(q => q.order ?? 0)) : 0;
+    newSeq.forEach((id, i) => {
+      const q = this.questLog.quests.find(x => x.id === id);
       if (q) q.order = base + i;
     });
-    this.questLog.quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
+
+    this.questLog.quests
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .forEach((q, i) => (q.order = i));
+
     await this.commit();
   }
+
   getTodayQuests() {
     const ref = getLogicalToday(this.settings.dailyResetHour);
     return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, ref));
@@ -498,11 +517,16 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async exportData() {
     try {
-      const data = JSON.stringify(this.questLog, null, 2), blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob), a = document.createElement('a');
-      a.href = url; a.download = `QuestLog-Export-${todayStr()}.json`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-      new Notice('✓ Quest data exported successfully!');
+      const folder = 'daily-quest-log/exports';
+      if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+
+      const path = `${folder}/QuestLog-Export-${todayStr(this.settings.dailyResetHour)}.json`;
+      const content = JSON.stringify(this.questLog, null, 2);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) await this.app.vault.modify(existing, content);
+      else await this.app.vault.create(path, content);
+
+      new Notice(`✓ Exported to ${path}`);
     } catch (err) {
       console.error('Export error:', err);
       new Notice('❌ Failed to export data. Check console for details.');
@@ -512,20 +536,23 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async importData(jsonContent) {
     try {
       const imported = JSON.parse(jsonContent);
+      const valid =
+        imported && typeof imported === 'object' &&
+        Array.isArray(imported.quests) &&
+        Array.isArray(imported.completions) &&
+        imported.player && Number.isFinite(imported.player.level) && Number.isFinite(imported.player.xp) &&
+        imported.timerState && typeof imported.timerState === 'object' &&
+        imported.timerState.pausedSessions && typeof imported.timerState.pausedSessions === 'object' &&
+        typeof imported.day === 'string';
 
-      if (!imported || typeof imported !== 'object') {
-        throw new Error('Invalid data structure');
-      }
-      if (!Array.isArray(imported.quests) || !Array.isArray(imported.completions)) {
-        throw new Error('Missing required fields: quests or completions');
-      }
+      if (!valid) throw new Error('Invalid quest log schema');
 
-      if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data. Continue?'))) {
+      if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data. Continue?')))
         return;
-      }
 
       this.questLog = imported;
       await this.commit();
+      await this.ensureDailyRollover();
       this.updateRibbonLabel();
       new Notice('✓ Quest data imported successfully!');
     } catch (err) {
@@ -629,7 +656,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 | Rank | Quest Name | Completions | Total XP | Total Time |
 |------|-----------|-------------|----------|------------|
- ${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes / 60)}h ${Math.floor(q.minutes % 60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
+${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes / 60)}h ${Math.floor(q.minutes % 60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
 
 ---
 
@@ -637,7 +664,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 | Date | Quests | XP Earned | Time Spent |
 |------|--------|-----------|------------|
- ${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes / 60) ? `${Math.floor(d.minutes / 60)}h ${Math.floor(d.minutes % 60)}m` : `${Math.floor(d.minutes % 60)}m`} |`).join('\n')}
+${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes / 60) ? `${Math.floor(d.minutes / 60)}h ${Math.floor(d.minutes % 60)}m` : `${Math.floor(d.minutes % 60)}m`} |`).join('\n')}
 `;
   }
 };
@@ -715,8 +742,9 @@ class QuestView extends ItemView {
     const xpPercent = clamp((player.xp / xpForNext) * 100, 0, 100);
     const rank = RANK_FOR(player.level);
 
-    const header = container.createDiv({ cls: 'quest-view-header' });
-    const headerTop = header.createDiv({ cls: 'quest-header-top-compact' });
+    // viewHeader
+    const viewHeader = container.createDiv({ cls: 'quest-view-header' });
+    const headerTop = viewHeader.createDiv({ cls: 'quest-header-top-compact' });
     headerTop.createEl('h2', { text: "Today's Quests", cls: 'quest-title-compact' });
 
     const rankCompact = headerTop.createDiv({ cls: 'rank-compact' });
@@ -737,7 +765,8 @@ class QuestView extends ItemView {
       return sum;
     }, 0);
 
-    const progressRow = header.createDiv({ cls: 'quest-progress-row' });
+    // viewHeader
+    const progressRow = viewHeader.createDiv({ cls: 'quest-progress-row' });
     const xpContainer = progressRow.createDiv({ cls: 'xp-container-compact' });
     const xpBar = xpContainer.createDiv({ cls: 'xp-bar-compact' });
     const xpFill = xpBar.createDiv({ cls: 'xp-fill-compact' });
@@ -800,34 +829,29 @@ class QuestView extends ItemView {
       for (const q of otherQuests) this.renderQuestItem(otherList, q, { draggable: false, locked: true });
     }
 
-    // Archived section with collapsible functionality
+    // archivedHeader, archivedList
     const archived = this.plugin.questLog.quests.filter((q) => q.archived);
     if (archived.length) {
-      // Create clickable header with chevron
-      const header = container.createDiv({ cls: 'quest-section-title quest-section-archived quest-section-toggle' });
-      header.innerHTML = `${svgIcon('chevronDown', { size: 12 })} 📦 Archived (${archived.length})`;
-      header.style.cursor = 'pointer';
-      if (this.archivedCollapsed) header.addClass('collapsed');
+      const archivedHeader = container.createDiv({ cls: 'quest-section-title quest-section-archived quest-section-toggle' });
+      archivedHeader.innerHTML = `${svgIcon('chevronDown', { size: 12 })} 📦 Archived (${archived.length})`;
+      archivedHeader.style.cursor = 'pointer';
+      if (this.archivedCollapsed) archivedHeader.addClass('collapsed');
 
-      // Create the list container
-      const list = container.createDiv({ cls: 'quest-archived-list' });
-      if (this.archivedCollapsed) list.style.display = 'none';
+      const archivedList = container.createDiv({ cls: 'quest-archived-list' });
+      if (this.archivedCollapsed) archivedList.style.display = 'none';
 
-      // Toggle functionality
-      header.addEventListener('click', () => {
+      archivedHeader.addEventListener('click', () => {
         this.archivedCollapsed = !this.archivedCollapsed;
-        header.toggleClass('collapsed', this.archivedCollapsed);
-        list.style.display = this.archivedCollapsed ? 'none' : 'block';
+        archivedHeader.toggleClass('collapsed', this.archivedCollapsed);
+        archivedList.style.display = this.archivedCollapsed ? 'none' : 'block';
       });
 
-      // Render all archived items
       for (const q of archived) {
-        const item = list.createDiv({ cls: 'quest-archived-item' });
+        const item = archivedList.createDiv({ cls: 'quest-archived-item' });
         item.createDiv({ cls: 'quest-archived-name', text: q.name });
 
         const controls = item.createDiv({ cls: 'quest-archived-controls' });
 
-        // Unarchive icon button
         const unarchiveBtn = this.createElement('button', {
           cls: 'btn-archived-icon',
           attr: { type: 'button', 'aria-label': 'Unarchive quest', title: 'Unarchive' }
@@ -838,7 +862,6 @@ class QuestView extends ItemView {
           this.render();
         });
 
-        // Delete icon button
         const deleteBtn = this.createElement('button', {
           cls: 'btn-archived-icon btn-archived-icon--danger',
           attr: { type: 'button', 'aria-label': 'Delete quest', title: 'Delete permanently' }
@@ -1309,13 +1332,6 @@ class QuestLogSettingTab extends PluginSettingTab {
     containerEl.createEl('h2', { text: 'Daily Quest Log Settings' });
 
     new Setting(containerEl)
-      .setName('Quest log path')
-      .setDesc('Path to store all quest data (default: QuestLog.json)')
-      .addText((t) => t.setPlaceholder('QuestLog.json')
-        .setValue(this.plugin.settings.questLogPath)
-        .onChange(async (v) => { this.plugin.settings.questLogPath = v || QUEST_LOG_FILE; await this.plugin.saveSettings(); }));
-
-    new Setting(containerEl)
       .setName('Daily reset hour')
       .setDesc('Hour when the day resets (0-23). For example: 4 = 4:00 AM. Times before this hour count as previous day.')
       .addText((t) => t
@@ -1326,7 +1342,7 @@ class QuestLogSettingTab extends PluginSettingTab {
           if (!isNaN(n) && n >= 0 && n <= 23) {
             this.plugin.settings.dailyResetHour = n;
             await this.plugin.saveSettings();
-            await this.plugin.ensureDailyRollover(true);
+            await this.plugin.ensureDailyRollover();
             new Notice(`Daily reset time set to ${n}:00`);
           } else {
             new Notice('❌ Please enter a number between 0 and 23');
