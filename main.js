@@ -62,9 +62,11 @@ const todayStr = (resetHour = 0) => {
   return toLocalDMY(adjustedDate);
 };
 
-const getLogicalToday = (resetHour = 0) => {
-  const d = new Date();
+const getLogicalToday = (resetHour = 0, now = new Date()) => {
+  const d = new Date(now);
   if (d.getHours() < resetHour) d.setDate(d.getDate() - 1);
+  // normalize to noon to dodge DST edges when using getDay()
+  d.setHours(12, 0, 0, 0);
   return d;
 };
 
@@ -358,10 +360,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     await this.commit();
   }
   getTodayQuests() {
-    return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, getLogicalToday(this.settings.dailyResetHour)));
+    const ref = getLogicalToday(this.settings.dailyResetHour);
+    return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, ref));
   }
   getOtherQuests() {
-    return this.getActiveQuests().filter((q) => !isScheduledOnDate(q.schedule, getLogicalToday(this.settings.dailyResetHour)));
+    const ref = getLogicalToday(this.settings.dailyResetHour);
+    return this.getActiveQuests().filter((q) => !isScheduledOnDate(q.schedule, ref));
   }
   isCompletedToday(questId) {
     const t = todayStr(this.settings.dailyResetHour);
