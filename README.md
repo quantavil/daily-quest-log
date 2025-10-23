@@ -1,165 +1,101 @@
 # Daily Quest Log
 
-A modern, JSON-backed Obsidian plugin for gamifying your habits and routines. Write your quests in HABITS.md, track time and completions in-app, and store everything in a single JSON file. No monthly Markdown logs. No legacy code. Clean, fast, and reliable.
+Transform your task management into a gamified productivity system with XP, levels, and rewards in Obsidian.
 
-- **Data store**: QuestLog.json (configurable)
-- **Source of truth**: HABITS.md
-- **Today view**: Timers, XP, levels, undo, and reporting
-- **Modern setup**: TypeScript/ES module
+## Installation
 
-## 🚀 Quick Start
+### From Obsidian Community Plugins
 
-1. [Install the plugin](#installation)
-2. Create `HABITS.md` in your vault root
-3. Add quests with `#quest(daily)` tags
-4. Click the sword icon to open Today's Quests
-5. Start tracking with timers and gamify your productivity!
+1. Open Obsidian Settings
+2. Go to Community Plugins → Browse
+3. Search for "Daily Quest Log"
+4. Install and enable the plugin
 
-## 📋 Features
+### Manual Installation
 
-### JSON-Backed Persistence
-- Completions, timer states, and player data stored in a single JSON file (configurable path)
-- Everything is machine-readable and instant to update — no more monthly logs!
+1. Download the latest release from the [GitHub Releases page](https://github.com/quantavil/daily-quest-log/releases)
+2. Extract the plugin files (`main.js`, `manifest.json`, `styles.css`) into your Obsidian vault's `.obsidian/plugins/daily-quest-log/` folder
+3. Reload Obsidian and enable the plugin in Community Plugins
 
-### Today's Quests View
-- Shows only quests scheduled for today (based on HABITS.md)
-- Inline timers with one-click start/pause/resume/complete
-- Visual XP progress bar and level display
+## Features
 
-### Smart Timers
-- Persist across Obsidian reloads
-- Auto-pause on app close
-- Supports paused sessions per quest — resume anytime
-- Overtime warnings for estimated quests
+- **Gamified Experience**: Earn XP for completing quests and level up through inspiring ranks (Novice to Archmage)
+- **Quest Management**: Create, edit, archive, and delete quests with categories and scheduling
+- **Time Tracking**: Start, pause, and resume timers with visual feedback
+- **Scheduling**: Schedule quests daily, on weekdays/weekends, or specific days
+- **Progress Overview**: View today's quests, other scheduled quests, and completed quests
+- **XP & Levels**: Progress through ranks as you complete quests and earn XP
+- **Reports**: Generate comprehensive Markdown reports of your quest history (last 30 days, top quests, etc.)
+- **Data Management**: Export/import quest data for backups, or reset all data if needed
 
-### Bidirectional HABITS.md Sync
-- Completing a quest in the view checks it [x] in HABITS.md
-- Checking/unchecking directly in HABITS.md is detected and synced to JSON
-- Stable quest IDs ensure reliable tracking
+## Usage
 
-### XP & Leveling System
-- Configurable XP per minute, base, and exponent
-- Estimated-time-aware XP: Earn `max(estimate, actual) * rate`
-- Flat XP fallback for quests without time estimates
-- Level up with exponential scaling: `XP = base × level^exponent`
+### Opening the Quest Log
 
-### Reporting & Analytics
-- Generate detailed Markdown reports with charts
-- Visualize progress over the last 30 days
-- Top quests leaderboard and time breakdown
+- Click the target icon (🎯) in the Obsidian ribbon to open the Quest Log view
+- Or use the command palette: Open Command Palette → `Daily Quest Log: Open Quest Log`
 
-## 📝 Usage
+### Creating a Quest
 
-### Quest Format in HABITS.md
-Quests are defined as Markdown todo items with a `#quest(schedule)` tag. Only top-level tasks are processed.
+1. Click the `+` button in the Quest Log view
+2. Enter a quest name (required)
+3. Optionally set a category (e.g., "work", "health", "personal")
+4. Optionally set time estimate in minutes
+5. Select schedule days (daily, weekdays, weekends, or custom)
+6. Click "Create" or press Enter
 
-**Basic Syntax:**
-```markdown
-- [ ] Quest name #quest(schedule) (Est: time)
-```
+### Managing Quests
 
-### Scheduling Patterns
-- **`#quest(daily)`** — Every day
-- **`#quest(weekdays)`** — Monday to Friday
-- **`#quest(M,T,W,R,F,S,U)`** — Specific days (M=Monday, T=Tuesday, W=Wednesday, R=Thursday, F=Friday, S=Saturday, U=Sunday)
-  - Examples: `#quest(M,W,F)`, `#quest(T,R)`, `#quest(S,U)`
-- **`#quest(DD-MM-YYYY)`** — Specific date (e.g., `#quest(03-11-2025)`)
+- **Start/Pause/Resume**: Use the play/pause buttons to control timers
+- **Complete**: Check the checkbox next to a quest when finished
+- **Edit**: Double-click a quest name to edit inline
+- **Archive**: Use the archive button to hide completed/old quests while keeping history
+- **Delete**: Delete quests permanently (with confirmation)
+- **Reorder**: Drag quests to reorder within categories
 
-### Time Estimates
-Add estimates to improve XP calculations. Use `(Est: Xm)`, `(Est: Xh)`, or combined `(Est: Xh Ym)` formats:
+### Categories & Scheduling
 
-**Examples:**
-- `(Est: 30m)` — 30 minutes
-- `(Est: 1h)` — 1 hour
-- `(Est: 1h 23m)` — 1 hour 23 minutes
+- **Categories**: Automatically created from quest names (e.g., "exercise" becomes category "exercise")
+- **Scheduling**: Choose from presets (Daily, Weekdays, Weekends) or select individual days
 
-### Example HABITS.md
-```
-# Daily Habits
-- [ ] Journal #quest(daily) (Est: 15m)
-- [ ] Exercise #quest(M,W,F) (Est: 1h 30m)
-- [ ] Meditate #quest(daily) (Est: 20m)
-- [ ] Plan tomorrow #quest(weekdays) (Est: 10m)
+### Leveling & XP
 
-# Weekly Tasks
-- [ ] Grocery shopping #quest(S) (Est: 45m)
-- [ ] Laundry #quest(S,U) (Est: 1h)
-- [ ] Deep cleaning #quest(15-10-2025)
+- Complete quests to earn XP based on time spent (relative to estimates)
+- Level up through ranks with unique icons and colors
+- View current XP/level in the status bar and quest header
 
-### Today's Quests View
-Access via the sword ribbon icon. Shows all scheduled quests for today.
+### Generating Reports
 
-**Features:**
-- Real-time timers with start/pause/resume
-- Visual progress bar for XP and level
-- Complete quests with checkbox — updates HABITS.md automatically
-- Bidirectional sync: Changes in HABITS.md reflect in the view immediately
+1. Click "📊 Generate Report" in the Quest Log footer
+2. A `Quest-Report.md` file will be created/updated in your vault
+3. Includes: overview stats, daily breakdown (last 30 days), and top quests
 
-**Timer Behavior:**
-- Active timers persist across Obsidian restarts
-- Auto-pause when closing the app
-- Per-quest paused sessions — resume later
-- Overtime warning for estimated quests
+## Settings
 
-**XP System:**
-- **With estimate**: XP = `max(estimate, actual minutes) × rate`
-- **Without estimate**: Flat XP (default: 10)
-- Level up when XP reaches threshold: `base × level^exponent`
+Access settings via Obsidian Settings → Community Plugins → Daily Quest Log:
 
+- **Daily Reset Hour**: Set the hour (0-23) when the day resets and timers clear (e.g., 4 = 4:00 AM)
+- **Export Data**: Download all quest data as JSON for backup
+- **Import Data**: Restore data from a previously exported JSON file (replaces current data)
+- **Reset All Data**: Permanently delete all data and reset to level 1 (use with caution)
 
-## 🔧 Installation
+## Data Storage
 
-### Manual Installation (Recommended)
-1. Download the latest release from [GitHub Releases](https://github.com/quantavil/daily-quest-log/releases)
-2. Extract the files into your vault's `.obsidian/plugins/daily-quest-log/` folder
-3. Restart Obsidian or reload plugins
-4. Enable "Daily Quest Log" in Community Plugins → Installed plugins
+Quest data is stored in your vault at `.obsidian/plugins/daily-quest-log/questlog.json`. Exports are saved to `.obsidian/plugins/daily-quest-log/exports/`.
 
-### Requirements
-- Obsidian v1.0.0 or higher
-- Works on desktop only (`isDesktopOnly: false` in manifest)
+## Compatibility
 
-## ⚙️ Configuration
+- **Obsidian Version**: Requires Obsidian v1.0.0+
+- **Mobile**: Fully supported, including touch gestures for mobile editing
 
-Access settings through **Settings → Community plugins → Daily Quest Log**.
+## Contributing
 
-### File Paths
-- **HABITS file path**: Where your quests are defined (default: `HABITS.md`)
-- **Quest log path**: JSON file for data storage (default: `QuestLog.json`)
+Contributions are welcome! Please see the [GitHub repository](https://github.com/quantavil/daily-quest-log) for issues, feature requests, and pull requests.
 
-### XP & Leveling
-- **XP per minute**: XP earned per minute on estimated quests (default: 1)
-- **Flat XP**: XP for quests without time estimates (default: 10)
-- **Leveling base**: Base value for level scaling (default: 100)
-- **Leveling exponent**: Exponent for level scaling (default: 1.5)
+## Support
 
-**Formula**: Next level XP = `round(base × level^exponent)`
+If you encounter any issues or have questions, please open an issue on the [GitHub Issues page](https://github.com/quantavil/daily-quest-log/issues).
 
-### Danger Zone
-- **Reset All Data**: Permanently clear completions, reset level to 1 and XP to 0
+## License
 
-## 📊 Reporting
-
-Generate comprehensive progress reports from the Today's Quests view:
-- 30-day charts using Chart.js
-- Quest completions, XP earned, and time spent
-- Top quests leaderboard
-- Daily breakdowns
-
-Reports are saved as `Quest-Report.md` in the same folder as your HABITS file.
-
-## 🤝 Contributing
-
-- Report bugs or request features via [GitHub Issues](https://github.com/quantavil/daily-quest-log/issues)
-- Submit pull requests for improvements
-- Star the repo if you find it useful!
-
-## 📄 License
-
-Copyright (c) 2025 quantavil
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-*Made with ❤️ by [quantavil](https://github.com/quantavil)*
+This plugin is released under the [MIT License](LICENSE).

@@ -9,7 +9,7 @@ const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = re
 /* ========================================================================== */
 
 const VIEW_TYPE_QUESTS = 'daily-quest-log-view';
-const QUEST_LOG_FILE = 'daily-quest-log/questlog.json';
+const QUEST_LOG_FILE = 'questlog.json';
 const DEFAULT_SETTINGS = { dailyResetHour: 0 };
 
 const XP_CONFIG = { xpPerMinute: 1, flatXp: 10, levelingBase: 100, levelingExponent: 1.5 };
@@ -241,12 +241,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async saveQuestLog() {
-    // Ensure folder exists
-    const folder = 'daily-quest-log';
-    if (!this.app.vault.getAbstractFileByPath(folder)) {
-      await this.app.vault.createFolder(folder);
-    }
-
     const content = JSON.stringify(this.questLog, null, 2);
     const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
     if (file instanceof TFile) {
@@ -515,23 +509,20 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     new Notice('✓ All quest data has been reset!');
   }
 
-  async exportData() {
-    try {
-      const folder = 'daily-quest-log/exports';
-      if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+async exportData() {
+  try {
+    const path = `QuestLog-Export-${todayStr(this.settings.dailyResetHour)}.json`;
+    const content = JSON.stringify(this.questLog, null, 2);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, content);
+    else await this.app.vault.create(path, content);
 
-      const path = `${folder}/QuestLog-Export-${todayStr(this.settings.dailyResetHour)}.json`;
-      const content = JSON.stringify(this.questLog, null, 2);
-      const existing = this.app.vault.getAbstractFileByPath(path);
-      if (existing instanceof TFile) await this.app.vault.modify(existing, content);
-      else await this.app.vault.create(path, content);
-
-      new Notice(`✓ Exported to ${path}`);
-    } catch (err) {
-      console.error('Export error:', err);
-      new Notice('❌ Failed to export data. Check console for details.');
-    }
+    new Notice(`✓ Exported to ${path}`);
+  } catch (err) {
+    console.error('Export error:', err);
+    new Notice('❌ Failed to export data. Check console for details.');
   }
+}
 
   async importData(jsonContent) {
     try {
