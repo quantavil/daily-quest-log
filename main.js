@@ -62,6 +62,12 @@ const todayStr = (resetHour = 0) => {
   return toLocalDMY(adjustedDate);
 };
 
+const getLogicalToday = (resetHour = 0) => {
+  const d = new Date();
+  if (d.getHours() < resetHour) d.setDate(d.getDate() - 1);
+  return d;
+};
+
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const safeParse = (str, fallback = null) => { try { return JSON.parse(str); } catch { return fallback; } };
 const genId = (len = 12) => {
@@ -104,6 +110,8 @@ const ICONS = Object.freeze({
   archive: '<rect x="3" y="3" width="18" height="5" rx="1"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
   unarchive: '<path d="M3 3h18v5H3z"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M12 12v5m-3-3l3-3 3 3"/>',
   trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+
 });
 
 function svgIcon(name, { size = 16, stroke = 'currentColor', strokeWidth = 2, fill = 'none', attrs = 'stroke-linecap="round" stroke-linejoin="round"' } = {}) {
@@ -222,15 +230,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async saveQuestLog() {
-    const path = this.settings.questLogPath;
+    const path = this.app.fileManager.normalizePath(this.settings.questLogPath);
+    const folderPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    if (folderPath) await this.ensureFolder(folderPath);
+
     const content = JSON.stringify(this.questLog, null, 2);
     const file = this.app.vault.getAbstractFileByPath(path);
-
-    if (file instanceof TFile) {
-      await this.app.vault.modify(file, content);
-    } else {
-      await this.app.vault.create(path, content);
-    }
+    if (file instanceof TFile) await this.app.vault.modify(file, content);
+    else await this.app.vault.create(path, content);
   }
   async commit() { await this.saveQuestLog(); this.refreshView(); }
 
@@ -350,9 +357,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.questLog.quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
     await this.commit();
   }
-
-  getTodayQuests() { return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, new Date())); }
-  getOtherQuests() { return this.getActiveQuests().filter((q) => !isScheduledOnDate(q.schedule, new Date())); }
+  getTodayQuests() {
+    return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, getLogicalToday(this.settings.dailyResetHour)));
+  }
+  getOtherQuests() {
+    return this.getActiveQuests().filter((q) => !isScheduledOnDate(q.schedule, getLogicalToday(this.settings.dailyResetHour)));
+  }
   isCompletedToday(questId) {
     const t = todayStr(this.settings.dailyResetHour);
     return this.questLog.completions.some((c) => c.questId === questId && c.date === t);
@@ -641,6 +651,7 @@ class QuestView extends ItemView {
     this.editingId = null;
     this.editingDraft = null;
     this.totalRemainingSpan = null;
+    this.archivedCollapsed = true;
   }
 
   getViewType() { return VIEW_TYPE_QUESTS; }
@@ -785,11 +796,27 @@ class QuestView extends ItemView {
       for (const q of otherQuests) this.renderQuestItem(otherList, q, { draggable: false, locked: true });
     }
 
-    // Archived section
+    // Archived section with collapsible functionality
     const archived = this.plugin.questLog.quests.filter((q) => q.archived);
     if (archived.length) {
-      container.createDiv({ cls: 'quest-section-title quest-section-archived', text: '📦 Archived' });
+      // Create clickable header with chevron
+      const header = container.createDiv({ cls: 'quest-section-title quest-section-archived quest-section-toggle' });
+      header.innerHTML = `${svgIcon('chevronDown', { size: 12 })} 📦 Archived (${archived.length})`;
+      header.style.cursor = 'pointer';
+      if (this.archivedCollapsed) header.addClass('collapsed');
+
+      // Create the list container
       const list = container.createDiv({ cls: 'quest-archived-list' });
+      if (this.archivedCollapsed) list.style.display = 'none';
+
+      // Toggle functionality
+      header.addEventListener('click', () => {
+        this.archivedCollapsed = !this.archivedCollapsed;
+        header.toggleClass('collapsed', this.archivedCollapsed);
+        list.style.display = this.archivedCollapsed ? 'none' : 'block';
+      });
+
+      // Render all archived items
       for (const q of archived) {
         const item = list.createDiv({ cls: 'quest-archived-item' });
         item.createDiv({ cls: 'quest-archived-name', text: q.name });
