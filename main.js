@@ -509,20 +509,20 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     new Notice('✓ All quest data has been reset!');
   }
 
-async exportData() {
-  try {
-    const path = `QuestLog-Export-${todayStr(this.settings.dailyResetHour)}.json`;
-    const content = JSON.stringify(this.questLog, null, 2);
-    const existing = this.app.vault.getAbstractFileByPath(path);
-    if (existing instanceof TFile) await this.app.vault.modify(existing, content);
-    else await this.app.vault.create(path, content);
+  async exportData() {
+    try {
+      const path = `QuestLog-Export-${todayStr(this.settings.dailyResetHour)}.json`;
+      const content = JSON.stringify(this.questLog, null, 2);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) await this.app.vault.modify(existing, content);
+      else await this.app.vault.create(path, content);
 
-    new Notice(`✓ Exported to ${path}`);
-  } catch (err) {
-    console.error('Export error:', err);
-    new Notice('❌ Failed to export data. Check console for details.');
+      new Notice(`✓ Exported to ${path}`);
+    } catch (err) {
+      console.error('Export error:', err);
+      new Notice('❌ Failed to export data. Check console for details.');
+    }
   }
-}
 
   async importData(jsonContent) {
     try {
@@ -573,6 +573,8 @@ async exportData() {
   async calculateStats() {
     const { completions, player, quests } = this.questLog;
     const qName = Object.fromEntries(quests.map((q) => [q.id, q.name]));
+    const qCategory = Object.fromEntries(quests.map((q) => [q.id, q.category || 'uncategorized']));
+
     const totalCompleted = completions.length;
 
     const totals = completions.reduce((acc, c) => {
@@ -589,13 +591,19 @@ async exportData() {
       bq.xp += c.xpEarned;
       bq.minutes += c.minutesSpent;
 
+      const cat = qCategory[c.questId] || 'uncategorized';
+      const bc = (acc.byCategory[cat] ||= { count: 0, xp: 0, minutes: 0 });
+      bc.count++;
+      bc.xp += c.xpEarned;
+      bc.minutes += c.minutesSpent;
+
       return acc;
-    }, { totalXP: 0, totalMinutes: 0, byDate: {}, byQuest: {} });
+    }, { totalXP: 0, totalMinutes: 0, byDate: {}, byQuest: {}, byCategory: {} });
 
     const resetHour = this.settings.dailyResetHour;
     const todayKey = todayStr(resetHour);
     const [y, m, d] = todayKey.split('-').map(Number);
-    const anchor = new Date(y, m - 1, d); // local midnight of the reset-aligned date
+    const anchor = new Date(y, m - 1, d);
 
     const last30Days = Array.from({ length: 30 }, (_, i) => {
       const day = new Date(anchor);
@@ -605,10 +613,44 @@ async exportData() {
       return { date: ds, ...x };
     });
 
+    const last7Days = last30Days.slice(-7);
+
+    // Streak calculation
+    let currentStreak = 0;
+    let maxStreak = 0;
+    let tempStreak = 0;
+
+    for (let i = last30Days.length - 1; i >= 0; i--) {
+      if (last30Days[i].count > 0) {
+        tempStreak++;
+        if (i === last30Days.length - 1) currentStreak = tempStreak;
+        maxStreak = Math.max(maxStreak, tempStreak);
+      } else {
+        if (i === last30Days.length - 1) currentStreak = 0;
+        tempStreak = 0;
+      }
+    }
+
     const topQuests = Object.entries(totals.byQuest)
       .sort((a, b) => b[1].count - a[1].count)
       .slice(0, 10)
-      .map(([id, data]) => ({ id, name: qName[id] || id, ...data }));
+      .map(([id, data]) => ({
+        id,
+        name: qName[id] || id,
+        category: qCategory[id] || 'uncategorized',
+        ...data
+      }));
+
+    const categoryStats = Object.entries(totals.byCategory)
+      .map(([cat, data]) => ({ category: cat, ...data }))
+      .sort((a, b) => b.count - a.count);
+
+    const activeDays = last30Days.filter(d => d.count > 0).length;
+    const avgDailyXP = activeDays > 0 ? Math.round(totals.totalXP / activeDays) : 0;
+    const avgDailyTime = activeDays > 0 ? Math.round(totals.totalMinutes / activeDays) : 0;
+
+    const peakDay = last30Days.reduce((max, day) =>
+      day.xp > max.xp ? day : max, { date: 'N/A', xp: 0, count: 0 });
 
     return {
       player,
@@ -616,47 +658,215 @@ async exportData() {
       totalXP: totals.totalXP,
       totalMinutes: totals.totalMinutes,
       last30Days,
-      topQuests
+      last7Days,
+      topQuests,
+      categoryStats,
+      currentStreak,
+      maxStreak,
+      activeDays,
+      avgDailyXP,
+      avgDailyTime,
+      peakDay
     };
   }
 
   buildReportMarkdown(stats) {
     const now = todayStr(this.settings.dailyResetHour);
-    const h = Math.floor(stats.totalMinutes / 60), m = Math.floor(stats.totalMinutes % 60);
+    const h = Math.floor(stats.totalMinutes / 60);
+    const m = Math.floor(stats.totalMinutes % 60);
     const rank = RANK_FOR(stats.player.level);
+    const xpForNext = this.getXPForNextLevel(stats.player.level);
+    const xpProgress = Math.round((stats.player.xp / xpForNext) * 100);
 
-    return `# 📊 Quest Report
+    return `# 📊 Quest Analytics Report
 *Generated: ${now}*
 
 ---
 
-## 🏆 Overview
+## 🏆 Player Profile
 
-| Stat | Value |
-|------|-------|
-| **Current Rank** | ${rank.icon} **${rank.name}** |
-| **Current Level** | ${stats.player.level} |
-| **Current XP** | ${stats.player.xp} |
-| **Total Quests Completed** | ${stats.totalCompleted} |
-| **Total XP Earned** | ${stats.totalXP.toLocaleString()} |
-| **Total Time Spent** | ${h}h ${m}m |
+> **${rank.icon} ${rank.name}** — Level **${stats.player.level}** (**${xpProgress}%** to next level)
 
----
-
-## 🎯 Top Quests
-
-| Rank | Quest Name | Completions | Total XP | Total Time |
-|------|-----------|-------------|----------|------------|
-${stats.topQuests.map((q, i) => `| ${i + 1} | ${q.name} | ${q.count} | ${q.xp} XP | ${Math.floor(q.minutes / 60)}h ${Math.floor(q.minutes % 60)}m |`).join('\n') || '| - | No quests completed yet | - | - | - |'}
+| Metric | Value |
+|--------|-------|
+| 💎 Current XP | **${stats.player.xp}** / ${xpForNext} |
+| ⭐ Lifetime XP | **${stats.totalXP.toLocaleString()}** |
+| ✅ Total Completions | **${stats.totalCompleted}** quests |
+| ⏱️ Time Invested | **${h}h ${m}m** |
+| 🔥 Current Streak | **${stats.currentStreak}** days |
+| 🏅 Best Streak | **${stats.maxStreak}** days |
 
 ---
 
-## 📅 Daily Breakdown (Last 30 Days)
+## 📅 30-Day Activity Heatmap
 
-| Date | Quests | XP Earned | Time Spent |
-|------|--------|-----------|------------|
-${stats.last30Days.slice().reverse().map((d) => `| ${d.date} | ${d.count} | ${d.xp} XP | ${Math.floor(d.minutes / 60) ? `${Math.floor(d.minutes / 60)}h ${Math.floor(d.minutes % 60)}m` : `${Math.floor(d.minutes % 60)}m`} |`).join('\n')}
+\`\`\`mermaid
+${this.generateActivityHeatmap(stats.last30Days)}
+\`\`\`
+
+---
+
+## 🎯 Quest Performance
+
+### Top 10 Quests by Completion
+
+\`\`\`mermaid
+${stats.topQuests.length > 0 ? this.generateTopQuestsChart(stats.topQuests) : 'pie title No Data\n    "No completions yet" : 100'}
+\`\`\`
+
+### Time Investment by Quest
+
+\`\`\`mermaid
+${stats.topQuests.length > 0 ? this.generateTimeDistributionChart(stats.topQuests) : 'pie title No Data\n    "No time tracked yet" : 100'}
+\`\`\`
+
+---
+
+## 📊 Category Analysis
+
+### Completion Distribution
+
+\`\`\`mermaid
+${stats.categoryStats.length > 0 ? this.generateCategoryPieChart(stats.categoryStats) : 'pie title No Data\n    "No categories yet" : 100'}
+\`\`\`
+
+### Category Performance Matrix
+
+| Category | Completions | Total XP | Time Spent | Avg XP/Quest |
+|----------|-------------|----------|------------|--------------|
+${stats.categoryStats.slice(0, 10).map(cat => {
+      const avgXP = cat.count > 0 ? Math.round(cat.xp / cat.count) : 0;
+      const timeStr = formatTime(cat.minutes);
+      return `| ${cat.category} | ${cat.count} | ${cat.xp} | ${timeStr} | ${avgXP} |`;
+    }).join('\n')}
+
+---
+
+## 📅 Weekly Summary
+
+| Metric | Value |
+|--------|-------|
+| 📊 Active Days | ${stats.activeDays} / 30 days |
+| 📈 Avg Daily XP | **${stats.avgDailyXP}** XP |
+| ⏰ Avg Daily Time | **${formatTime(stats.avgDailyTime)}** |
+| 🔝 Peak Day | ${stats.peakDay.xp > 0 ? `${stats.peakDay.date} (**${stats.peakDay.xp}** XP, ${stats.peakDay.count} quests)` : 'No activity'} |
+| 📉 Completion Rate | **${Math.round((stats.activeDays / 30) * 100)}%** |
+
+---
+
+## 📈 Last 7 Days Activity
+
+### XP Earned
+
+\`\`\`mermaid
+${this.generateWeeklyXPChart(stats.last7Days)}
+\`\`\`
+
+### Time Spent (Minutes)
+
+\`\`\`mermaid
+${this.generateWeeklyTimeChart(stats.last7Days)}
+\`\`\`
+
+---
+
+## 📋 Monthly Activity Report (Last 30 Days)
+
+| Date | Tasks Completed | XP Earned | Time Spent |
+|------|-----------------|-----------|------------|
+${stats.last30Days.map(day => {
+      const timeStr = day.minutes > 0 ? formatTime(day.minutes) : '-';
+      return `| ${day.date} | ${day.count} | ${day.xp} | ${timeStr} |`;
+    }).join('\n')}
+
+**Total:** ${stats.totalCompleted} tasks • ${stats.totalXP} XP • ${formatTime(stats.totalMinutes)}
 `;
+  }
+
+  generateActivityHeatmap(last30Days) {
+    const weeks = [];
+    let currentWeek = [];
+
+    last30Days.forEach((day, i) => {
+      currentWeek.push(day);
+      if (currentWeek.length === 7 || i === last30Days.length - 1) {
+        weeks.push([...currentWeek]);
+        currentWeek = [];
+      }
+    });
+
+    const maxCount = Math.max(...last30Days.map(d => d.count), 1);
+
+    let chart = `gantt
+    title Daily Activity Intensity (Last 30 Days)
+    dateFormat YYYY-MM-DD
+    axisFormat %m-%d
+    
+`;
+
+    weeks.forEach((week, weekIdx) => {
+      chart += `    section Week ${weekIdx + 1}\n`;
+      week.forEach(day => {
+        const intensity = day.count > 0 ? Math.min(Math.ceil((day.count / maxCount) * 3), 3) : 0;
+        const status = intensity === 0 ? '' : intensity === 1 ? 'done' : intensity === 2 ? 'active' : 'crit';
+        const label = `${day.date.slice(5)} (${day.count})`;
+        chart += `    ${label} :${status}, ${day.date}, 1d\n`;
+      });
+    });
+
+    return chart;
+  }
+
+  generateTopQuestsChart(topQuests) {
+    const top5 = topQuests.slice(0, 5);
+
+    return `pie title Quest Completion Distribution (Top 5)
+    ${top5.map(q => `"${this.truncateText(q.name, 20)}" : ${q.count}`).join('\n    ')}`;
+  }
+
+  generateTimeDistributionChart(topQuests) {
+    const top5 = topQuests.slice(0, 5).filter(q => q.minutes > 0);
+
+    if (top5.length === 0) {
+      return `pie title No Time Data
+    "No time tracked" : 100`;
+    }
+
+    return `pie title Time Investment by Quest (Top 5)
+    ${top5.map(q => `"${this.truncateText(q.name, 20)}" : ${q.minutes}`).join('\n    ')}`;
+  }
+
+  generateCategoryPieChart(categoryStats) {
+    const top8 = categoryStats.slice(0, 8);
+
+    return `pie title Completions by Category
+    ${top8.map(cat => `"${this.truncateText(cat.category, 15)}" : ${cat.count}`).join('\n    ')}`;
+  }
+
+  generateWeeklyXPChart(last7Days) {
+    const maxXP = Math.max(...last7Days.map(d => d.xp), 10);
+
+    return `xychart-beta
+    title "Daily XP Earned (Last 7 Days)"
+    x-axis [${last7Days.map(d => `"${d.date.slice(5)}"`).join(', ')}]
+    y-axis "XP Earned" 0 --> ${maxXP + 50}
+    bar [${last7Days.map(d => d.xp).join(', ')}]`;
+  }
+
+  generateWeeklyTimeChart(last7Days) {
+    const maxMinutes = Math.max(...last7Days.map(d => d.minutes), 10);
+
+    return `xychart-beta
+    title "Daily Time Invested (Last 7 Days)"
+    x-axis [${last7Days.map(d => `"${d.date.slice(5)}"`).join(', ')}]
+    y-axis "Minutes" 0 --> ${maxMinutes + 20}
+    bar [${last7Days.map(d => d.minutes).join(', ')}]`;
+  }
+
+  truncateText(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength - 2) + '..';
   }
 };
 
