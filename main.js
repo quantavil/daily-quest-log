@@ -698,26 +698,18 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 ---
 
-## 📅 30-Day Activity Heatmap
-
-\`\`\`mermaid
-${this.generateActivityHeatmap(stats.last30Days)}
-\`\`\`
-
----
-
 ## 🎯 Quest Performance
 
 ### Top 10 Quests by Completion
 
 \`\`\`mermaid
-${stats.topQuests.length > 0 ? this.generateTopQuestsChart(stats.topQuests) : 'pie title No Data\n    "No completions yet" : 100'}
+${stats.topQuests.length > 0 ? this.generateTopQuestsChart(stats.topQuests) : '---\nconfig:\n    theme: dark\n---\npie title No Data\n    "No completions yet" : 100'}
 \`\`\`
 
 ### Time Investment by Quest
 
 \`\`\`mermaid
-${stats.topQuests.length > 0 ? this.generateTimeDistributionChart(stats.topQuests) : 'pie title No Data\n    "No time tracked yet" : 100'}
+${stats.topQuests.length > 0 ? this.generateTimeDistributionChart(stats.topQuests) : '---\nconfig:\n    theme: dark\n---\npie title No Data\n    "No time tracked yet" : 100'}
 \`\`\`
 
 ---
@@ -727,7 +719,7 @@ ${stats.topQuests.length > 0 ? this.generateTimeDistributionChart(stats.topQuest
 ### Completion Distribution
 
 \`\`\`mermaid
-${stats.categoryStats.length > 0 ? this.generateCategoryPieChart(stats.categoryStats) : 'pie title No Data\n    "No categories yet" : 100'}
+${stats.categoryStats.length > 0 ? this.generateCategoryPieChart(stats.categoryStats) : '---\nconfig:\n    theme: dark\n---\npie title No Data\n    "No categories yet" : 100'}
 \`\`\`
 
 ### Category Performance Matrix
@@ -782,45 +774,14 @@ ${stats.last30Days.map(day => {
 **Total:** ${stats.totalCompleted} tasks • ${stats.totalXP} XP • ${formatTime(stats.totalMinutes)}
 `;
   }
-
-  generateActivityHeatmap(last30Days) {
-    const weeks = [];
-    let currentWeek = [];
-
-    last30Days.forEach((day, i) => {
-      currentWeek.push(day);
-      if (currentWeek.length === 7 || i === last30Days.length - 1) {
-        weeks.push([...currentWeek]);
-        currentWeek = [];
-      }
-    });
-
-    const maxCount = Math.max(...last30Days.map(d => d.count), 1);
-
-    let chart = `gantt
-    title Daily Activity Intensity (Last 30 Days)
-    dateFormat YYYY-MM-DD
-    axisFormat %m-%d
-    
-`;
-
-    weeks.forEach((week, weekIdx) => {
-      chart += `    section Week ${weekIdx + 1}\n`;
-      week.forEach(day => {
-        const intensity = day.count > 0 ? Math.min(Math.ceil((day.count / maxCount) * 3), 3) : 0;
-        const status = intensity === 0 ? '' : intensity === 1 ? 'done' : intensity === 2 ? 'active' : 'crit';
-        const label = `${day.date.slice(5)} (${day.count})`;
-        chart += `    ${label} :${status}, ${day.date}, 1d\n`;
-      });
-    });
-
-    return chart;
-  }
-
   generateTopQuestsChart(topQuests) {
     const top5 = topQuests.slice(0, 5);
 
-    return `pie title Quest Completion Distribution (Top 5)
+    return `---
+config:
+    theme: forest
+---
+pie title Quest Completion Distribution (Top 5)
     ${top5.map(q => `"${this.truncateText(q.name, 20)}" : ${q.count}`).join('\n    ')}`;
   }
 
@@ -828,25 +789,41 @@ ${stats.last30Days.map(day => {
     const top5 = topQuests.slice(0, 5).filter(q => q.minutes > 0);
 
     if (top5.length === 0) {
-      return `pie title No Time Data
+      return `---
+config:
+    theme: forest
+---
+pie title No Time Data
     "No time tracked" : 100`;
     }
 
-    return `pie title Time Investment by Quest (Top 5)
+    return `---
+config:
+    theme: forest
+---
+pie title Time Investment by Quest (Top 5)
     ${top5.map(q => `"${this.truncateText(q.name, 20)}" : ${q.minutes}`).join('\n    ')}`;
   }
 
   generateCategoryPieChart(categoryStats) {
     const top8 = categoryStats.slice(0, 8);
 
-    return `pie title Completions by Category
+    return `---
+config:
+    theme: forest
+---
+pie title Completions by Category
     ${top8.map(cat => `"${this.truncateText(cat.category, 15)}" : ${cat.count}`).join('\n    ')}`;
   }
 
   generateWeeklyXPChart(last7Days) {
     const maxXP = Math.max(...last7Days.map(d => d.xp), 10);
 
-    return `xychart-beta
+    return `---
+config:
+    theme: dark
+---
+xychart-beta
     title "Daily XP Earned (Last 7 Days)"
     x-axis [${last7Days.map(d => `"${d.date.slice(5)}"`).join(', ')}]
     y-axis "XP Earned" 0 --> ${maxXP + 50}
@@ -856,13 +833,16 @@ ${stats.last30Days.map(day => {
   generateWeeklyTimeChart(last7Days) {
     const maxMinutes = Math.max(...last7Days.map(d => d.minutes), 10);
 
-    return `xychart-beta
+    return `---
+config:
+    theme: dark
+---
+xychart-beta
     title "Daily Time Invested (Last 7 Days)"
     x-axis [${last7Days.map(d => `"${d.date.slice(5)}"`).join(', ')}]
     y-axis "Minutes" 0 --> ${maxMinutes + 20}
     bar [${last7Days.map(d => d.minutes).join(', ')}]`;
   }
-
   truncateText(text, maxLength) {
     if (!text) return '';
     if (text.length <= maxLength) return text;
