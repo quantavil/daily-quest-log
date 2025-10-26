@@ -541,10 +541,17 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data. Continue?')))
         return;
 
+      // Replace data in memory
       this.questLog = imported;
-      await this.commit();
+
+      // Overwrite file directly
+      await this.app.vault.adapter.write(QUEST_LOG_FILE, JSON.stringify(this.questLog, null, 2));
+
+      // Update UI
       await this.ensureDailyRollover();
       this.updateRibbonLabel();
+      this.refreshView();
+
       new Notice('✓ Quest data imported successfully!');
     } catch (err) {
       console.error('Import error:', err);
