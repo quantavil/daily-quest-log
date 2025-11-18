@@ -144,6 +144,7 @@ function parseSchedule(raw) {
       if (key === B) break;
     }
   }
+  if (days.size === 0) return { kind: 'daily', days: new Set(DAY_KEYS) };
   return { kind: 'days', days };
 }
 
@@ -167,6 +168,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async onload() {
     // 1) Settings must be loaded first
     await this.loadSettings();
+    this._scheduleCache = new Map();
+    this._categoryCache = null;
 
     // 2) Safe in-memory state so early renders don't crash
     if (!this.questLog) this.initializeQuestLog();
@@ -192,8 +195,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     });
   }
 
-  onunload() {
-    this.saveQuestLog().catch((err) => { console.error('QuestLog onunload save failed:', err); });
+  async onunload() {
+    try {
+      await this.saveQuestLog();
+    } catch (err) {
+      console.error('QuestLog onunload save failed:', err);
+    }
   }
 
   async loadSettings() {
@@ -262,6 +269,25 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     }
   }
 
+  get today() { return this.questLog.day; }
+
+  parseScheduleCached(schedule) {
+    if (!this._scheduleCache) this._scheduleCache = new Map();
+    if (!this._scheduleCache.has(schedule)) {
+      this._scheduleCache.set(schedule, parseSchedule(schedule));
+    }
+    return this._scheduleCache.get(schedule);
+  }
+  isScheduledOnDate(schedule, date) {
+    return this.parseScheduleCached(schedule).days.has(DAY_KEYS[date.getDay()]);
+  }
+  getCategoryList() {
+    if (!this._categoryCache) {
+      this._categoryCache = [...new Set(this.questLog.quests.map((q) => q.category || 'uncategorized'))].sort();
+    }
+    return this._categoryCache;
+  }
+
   updateRibbonLabel() {
     const { level } = this.questLog.player, rank = RANK_FOR(level);
     this.ribbonEl?.setAttribute('aria-label', `Quest Log • ${rank.icon} ${rank.name} (Lv${level})`);
@@ -286,6 +312,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       archived: false,
     };
     this.questLog.quests.push(quest);
+    this._categoryCache = null;
     await this.commit();
     new Notice(`✓ Quest created: ${quest.name}`);
     return quest;
@@ -297,9 +324,13 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     if ('category' in changes) {
       changes.category = changes.category.trim().toLowerCase();
+      this._categoryCache = null;
     }
     if ('estimateMinutes' in changes) {
       changes.estimateMinutes = changes.estimateMinutes > 0 ? Math.floor(changes.estimateMinutes) : null;
+    }
+    if ('schedule' in changes) {
+      this._scheduleCache && this._scheduleCache.clear();
     }
 
     Object.assign(q, changes);
@@ -319,6 +350,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.questLog.completions = this.questLog.completions.filter((c) => c.questId !== id);
     this.questLog.quests.splice(idx, 1);
     this.questLog.quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
+    this._categoryCache = null;
     await this.commit();
     new Notice('✓ Quest deleted');
   }
@@ -333,6 +365,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (s.activeQuestId === id) await this.pauseQuest(id);
 
     q.archived = true;
+    this._categoryCache = null;
     await this.commit();
     new Notice(`📦 Archived: ${q.name}`);
   }
@@ -343,6 +376,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (!q.archived) return void new Notice('Quest is not archived.');
 
     q.archived = false;
+    this._categoryCache = null;
     await this.commit();
     new Notice(`⏎ Unarchived: ${q.name}`);
   }
@@ -356,6 +390,10 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const rest = inCat.filter(q => !idSet.has(q.id)).map(q => q.id);
     const newSeq = [...questIds, ...rest];
 
+    const originalSeq = inCat.map(q => q.id);
+    const unchanged = originalSeq.length === newSeq.length && originalSeq.every((id, i) => id === newSeq[i]);
+    if (unchanged) return;
+
     const base = inCat.length ? Math.min(...inCat.map(q => q.order ?? 0)) : 0;
     newSeq.forEach((id, i) => {
       const q = this.questLog.quests.find(x => x.id === id);
@@ -366,14 +404,14 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   getTodayQuests() {
     const ref = getLogicalToday(this.settings.dailyResetHour);
-    return this.getActiveQuests().filter((q) => isScheduledOnDate(q.schedule, ref));
+    return this.getActiveQuests().filter((q) => this.isScheduledOnDate(q.schedule, ref));
   }
   getOtherQuests() {
     const ref = getLogicalToday(this.settings.dailyResetHour);
-    return this.getActiveQuests().filter((q) => !isScheduledOnDate(q.schedule, ref));
+    return this.getActiveQuests().filter((q) => !this.isScheduledOnDate(q.schedule, ref));
   }
   isCompletedToday(questId) {
-    const t = todayStr(this.settings.dailyResetHour);
+    const t = this.today;
     return this.questLog.completions.some((c) => c.questId === questId && c.date === t);
   }
 
@@ -931,7 +969,9 @@ class QuestView extends ItemView {
     <span class="rank-compact__name" style="color:${rank.color}">${rank.name}</span>
   </div>`;
 
-    const todayQuests = this.plugin.getTodayQuests();
+    const activeQuests = this.plugin.getActiveQuests();
+    const ref = getLogicalToday(this.plugin.settings.dailyResetHour);
+    const todayQuests = activeQuests.filter((q) => this.plugin.isScheduledOnDate(q.schedule, ref));
     const completedCount = todayQuests.filter((q) => this.plugin.isCompletedToday(q.id)).length;
     const unfinished = todayQuests.filter((q) => !this.plugin.isCompletedToday(q.id));
     const totalRemaining = unfinished.reduce((sum, q) => {
@@ -977,7 +1017,7 @@ class QuestView extends ItemView {
     if (this.editingId === 'new') this.renderInlineNew(container);
 
     const hasActiveQuest = !!this.plugin.questLog.timerState.activeQuestId;
-    const otherQuests = this.plugin.getOtherQuests();
+    const otherQuests = activeQuests.filter((q) => !this.plugin.isScheduledOnDate(q.schedule, ref));
     const activeToday = todayQuests.filter((q) => !this.plugin.isCompletedToday(q.id));
     const categoriesMap = new Map();
     for (const q of activeToday) {
@@ -1029,7 +1069,7 @@ class QuestView extends ItemView {
         const controls = item.createDiv({ cls: 'quest-archived-controls' });
 
         const unarchiveBtn = this.createElement('button', {
-          cls: 'btn-archived-icon',
+          cls: 'btn-icon btn-icon--sm',
           attr: { type: 'button', 'aria-label': 'Unarchive quest', title: 'Unarchive' }
         });
         unarchiveBtn.innerHTML = svgIcon('unarchive', { size: 16 });
@@ -1039,7 +1079,7 @@ class QuestView extends ItemView {
         });
 
         const deleteBtn = this.createElement('button', {
-          cls: 'btn-archived-icon btn-archived-icon--danger',
+          cls: 'btn-icon btn-icon--sm btn-icon--danger',
           attr: { type: 'button', 'aria-label': 'Delete quest', title: 'Delete permanently' }
         });
         deleteBtn.innerHTML = svgIcon('trash', { size: 16 });
@@ -1229,7 +1269,7 @@ class QuestView extends ItemView {
       if (!dragged) return;
       dragged.removeClass('dragging');
       const items = Array.from(container.querySelectorAll('.quest-item'));
-      const newOrder = items.map((el) => el.dataset.questId);
+      const newOrder = items.map((el) => el.dataset.questId).filter((id) => id !== undefined);
       await this.plugin.reorderQuests(newOrder, container.dataset.category);
       dragged = null;
     });
@@ -1253,7 +1293,7 @@ class QuestView extends ItemView {
   }
 
   renderCompletedSection(container) {
-    const t = todayStr(this.plugin.settings.dailyResetHour);
+    const t = this.plugin.today;
     const completedToday = this.plugin.questLog.completions.filter((c) => c.date === t).reverse();
     if (!completedToday.length) return;
 
@@ -1261,8 +1301,9 @@ class QuestView extends ItemView {
     section.createDiv({ cls: 'quest-section-title quest-section-completed' }).innerHTML = `✅ Completed Today (${completedToday.length})`;
 
     const list = section.createDiv({ cls: 'quest-completed-list' });
+    const questMap = new Map(this.plugin.questLog.quests.map((q) => [q.id, q]));
     for (const completion of completedToday) {
-      const quest = this.plugin.questLog.quests.find((q) => q.id === completion.questId);
+      const quest = questMap.get(completion.questId);
       if (!quest) continue;
       const item = list.createDiv({ cls: 'quest-completed-item' });
       const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox' });
@@ -1330,7 +1371,7 @@ class QuestView extends ItemView {
     const z1 = editor.createDiv({ cls: 'quest-editor__zone zone1' });
     const row = z1.createDiv({ cls: 'form-row-two-col' });
 
-    const existingCategories = [...new Set(this.plugin.questLog.quests.map(q => q.category || 'uncategorized'))].sort();
+    const existingCategories = this.plugin.getCategoryList();
     const datalistId = `category-list-${genId(6)}`;
 
     const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
@@ -1424,7 +1465,7 @@ class QuestView extends ItemView {
     if (!isNew) {
       // Archive button with SVG icon
       const archiveBtn = z3.createEl('button', {
-        cls: 'btn-archive-beautiful',
+        cls: 'btn-secondary',
         attr: { type: 'button', title: 'Archive quest (keep history)' }
       });
       archiveBtn.innerHTML = svgIcon('archive', { size: 14 });
@@ -1434,14 +1475,14 @@ class QuestView extends ItemView {
       });
 
       // Delete button
-      const deleteBtn = z3.createEl('button', { cls: 'btn-delete-beautiful', attr: { type: 'button', title: 'Delete quest' } });
+      const deleteBtn = z3.createEl('button', { cls: 'btn-danger', attr: { type: 'button', title: 'Delete quest' } });
       deleteBtn.innerHTML = svgIcon('trash', { size: 16 });
       deleteBtn.addEventListener('click', async () => { await this.plugin.deleteQuest(questId); this.closeInlineEdit(); });
     }
 
     const right = z3.createDiv({ cls: 'footer-right' });
-    const cancelBtn = right.createEl('button', { text: 'Cancel', cls: 'btn-cancel-beautiful', attr: { type: 'button' } });
-    const saveBtn = right.createEl('button', { text: isNew ? 'Create' : 'Save', cls: 'btn-save-beautiful', attr: { type: 'button' } });
+    const cancelBtn = right.createEl('button', { text: 'Cancel', cls: 'btn-secondary', attr: { type: 'button' } });
+    const saveBtn = right.createEl('button', { text: isNew ? 'Create' : 'Save', cls: 'btn-primary', attr: { type: 'button' } });
     cancelBtn.addEventListener('click', () => this.closeInlineEdit());
     saveBtn.addEventListener('click', () => this.saveInlineEdit(questId, item));
 
@@ -1463,6 +1504,7 @@ class QuestView extends ItemView {
     requestAnimationFrame(() => { el.style.maxHeight = '0px'; });
     const fn = () => { el.removeEventListener('transitionend', fn); done && done(); };
     el.addEventListener('transitionend', fn);
+    setTimeout(() => { el.removeEventListener('transitionend', fn); done && done(); }, 250);
   }
 
   iconBtn(icon, title) {
