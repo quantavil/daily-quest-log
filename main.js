@@ -192,12 +192,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     });
   }
 
-  async onunload() {
-    try {
-      await this.saveQuestLog();
-    } catch (err) {
-      console.error('QuestLog onunload save failed:', err);
-    }
+  onunload() {
+    this.saveQuestLog().catch((err) => { console.error('QuestLog onunload save failed:', err); });
   }
 
   async loadSettings() {
@@ -241,7 +237,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async saveQuestLog() {
-    const content = JSON.stringify(this.questLog, null, 2);
+    const toSave = { ...this.questLog, timerState: { activeQuestId: null, startTime: null, pausedSessions: {} } };
+    const content = JSON.stringify(toSave, null, 2);
     const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
     if (file instanceof TFile) {
       await this.app.vault.modify(file, content);
@@ -364,11 +361,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       const q = this.questLog.quests.find(x => x.id === id);
       if (q) q.order = base + i;
     });
-
-    this.questLog.quests
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .forEach((q, i) => (q.order = i));
-
     await this.commit();
   }
 
@@ -429,9 +421,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async resumeQuest(questId) { return this.startQuest(questId); }
 
   calculateXP(estimateMinutes, actualMinutes) {
-    return estimateMinutes && estimateMinutes > 0
-      ? Math.round(Math.max(estimateMinutes, actualMinutes) * XP_CONFIG.xpPerMinute)
-      : XP_CONFIG.flatXp;
+    return XP_CONFIG.flatXp;
   }
 
   awardXP(xp) {
@@ -456,7 +446,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const id = quest.id;
     if (quest.archived) return void new Notice('❌ Cannot complete archived quest.');
     if (this.isCompletedToday(id)) return void new Notice('Already completed today.');
-    const minutes = this.getTotalMinutes(id), xp = this.calculateXP(quest.estimateMinutes, minutes);
+    const minutes = 0, xp = this.calculateXP(quest.estimateMinutes, minutes);
     this.awardXP(xp);
     this.questLog.completions.push({
       questId: id, date: todayStr(this.settings.dailyResetHour),
@@ -541,14 +531,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       if (!(await this.showConfirmDialog('⚠️ Import Quest Data', 'This will replace all current quest data. Continue?')))
         return;
 
-      // Replace data in memory
       this.questLog = imported;
-
-      // Overwrite file directly
-      await this.app.vault.adapter.write(QUEST_LOG_FILE, JSON.stringify(this.questLog, null, 2));
-
-      // Update UI
-      await this.ensureDailyRollover();
+      await this.saveQuestLog();
       this.updateRibbonLabel();
       this.refreshView();
 
@@ -789,7 +773,7 @@ config:
     theme: forest
 ---
 pie title Quest Completion Distribution (Top 5)
-    ${top5.map(q => `"${this.truncateText(q.name, 20)}" : ${q.count}`).join('\n    ')}`;
+    ${top5.map(q => `"${this.escapeLabel(this.truncateText(q.name, 20))}" : ${q.count}`).join('\n    ')}`;
   }
 
   generateTimeDistributionChart(topQuests) {
@@ -809,7 +793,7 @@ config:
     theme: forest
 ---
 pie title Time Investment by Quest (Top 5)
-    ${top5.map(q => `"${this.truncateText(q.name, 20)}" : ${q.minutes}`).join('\n    ')}`;
+    ${top5.map(q => `"${this.escapeLabel(this.truncateText(q.name, 20))}" : ${q.minutes}`).join('\n    ')}`;
   }
 
   generateCategoryPieChart(categoryStats) {
@@ -820,7 +804,7 @@ config:
     theme: forest
 ---
 pie title Completions by Category
-    ${top8.map(cat => `"${this.truncateText(cat.category, 15)}" : ${cat.count}`).join('\n    ')}`;
+    ${top8.map(cat => `"${this.escapeLabel(this.truncateText(cat.category, 15))}" : ${cat.count}`).join('\n    ')}`;
   }
 
   generateWeeklyXPChart(last7Days) {
@@ -854,6 +838,10 @@ xychart-beta
     if (!text) return '';
     if (text.length <= maxLength) return text;
     return text.slice(0, maxLength - 2) + '..';
+  }
+  escapeLabel(text) {
+    const s = String(text || '');
+    return s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/\n|\r|\t/g, ' ');
   }
 };
 
