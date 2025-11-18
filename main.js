@@ -197,6 +197,13 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async onunload() {
     try {
+      const { activeQuestId } = this.questLog.timerState;
+      if (activeQuestId) {
+        const elapsed = this.getActiveElapsedMinutes();
+        this.questLog.timerState.pausedSessions[activeQuestId] = (this.questLog.timerState.pausedSessions[activeQuestId] || 0) + elapsed;
+        this.questLog.timerState.activeQuestId = null;
+        this.questLog.timerState.startTime = null;
+      }
       await this.saveQuestLog();
     } catch (err) {
       console.error('QuestLog onunload save failed:', err);
@@ -244,8 +251,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async saveQuestLog() {
-    const toSave = { ...this.questLog, timerState: { activeQuestId: null, startTime: null, pausedSessions: {} } };
-    const content = JSON.stringify(toSave, null, 2);
+    const content = JSON.stringify(this.questLog, null, 2);
     const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
     if (file instanceof TFile) {
       await this.app.vault.modify(file, content);
@@ -260,12 +266,15 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (this.questLog.day !== t) {
       const s = this.questLog.timerState;
       const wasActive = s.activeQuestId;
+      if (wasActive) {
+        const elapsed = this.getActiveElapsedMinutes();
+        s.pausedSessions[wasActive] = (s.pausedSessions[wasActive] || 0) + elapsed;
+      }
       s.activeQuestId = null;
       s.startTime = null;
-      s.pausedSessions = {};
       this.questLog.day = t;
       await this.commit();
-      if (wasActive) new Notice('⏰ Daily reset! All active timers cleared.', 4000);
+      if (wasActive) new Notice('⏰ Daily reset! Active timer paused (time saved).', 4000);
     }
   }
 
@@ -484,7 +493,8 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const id = quest.id;
     if (quest.archived) return void new Notice('❌ Cannot complete archived quest.');
     if (this.isCompletedToday(id)) return void new Notice('Already completed today.');
-    const minutes = 0, xp = this.calculateXP(quest.estimateMinutes, minutes);
+    const minutes = this.getTotalMinutes(id);
+    const xp = this.calculateXP(quest.estimateMinutes, minutes);
     this.awardXP(xp);
     this.questLog.completions.push({
       questId: id, date: todayStr(this.settings.dailyResetHour),
@@ -1154,9 +1164,9 @@ class QuestView extends ItemView {
 
     const checkbox = item.createEl('input', { type: 'checkbox', cls: 'quest-checkbox' });
     checkbox.checked = state.isCompleted;
-    checkbox.disabled = locked || state.isCompleted || state.isActive;
+    checkbox.disabled = locked || state.isCompleted;
     checkbox.setAttribute('aria-label', `Complete ${quest.name}`);
-    if (!locked && !state.isCompleted && !state.isActive) {
+    if (!locked && !state.isCompleted) {
       checkbox.addEventListener('change', async () => {
         if (checkbox.checked) await this.plugin.completeQuest(quest);
       });
