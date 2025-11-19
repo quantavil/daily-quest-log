@@ -1,6 +1,5 @@
-/* ============================================================================
-   DAILY QUEST LOG — Optimized Theme
-   ============================================================================ */
+/*styles.css*/
+/* ==DAILY QUEST LOG — Optimized Theme==*/
 
 :root {
   /* --- Brand Colors --- */
@@ -495,7 +494,8 @@
 .form-input-beautiful:focus, .quest-name-input-inline:focus { border-color: var(--quest-brand-cyan); box-shadow: var(--quest-focus-ring); }
 
 /* Schedule Picker */
-.schedule-header { display: flex; justify-content: space-between; margin-bottom: var(--quest-space-sm); }
+.schedule-header { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: var(--quest-space-sm); margin-bottom: var(--quest-space-sm); }
+.schedule-presets-inline { display: flex; gap: var(--quest-space-sm); flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
 .preset-btn-inline {
   padding: 3px var(--quest-space-sm); background: transparent;
   border: 1px solid var(--quest-border); border-radius: 10px;
@@ -573,6 +573,12 @@
   background: linear-gradient(180deg, var(--quest-brand-cyan), var(--quest-brand-purple));
   border-radius: 5px; border: 2px solid var(--quest-bg-primary);
 }
+
+/* removed pulse animation */
+.quest-item--paused { background: rgba(245, 158, 11, .06); }
+.quest-item--overtime { border-color: var(--quest-danger); }
+.quest-editor__zone.zone3 { justify-content: flex-start; flex-wrap: wrap; gap: var(--quest-space-sm); }
+.footer-right { flex-wrap: wrap; }
 
 /* ============================================================================
    RESPONSIVE

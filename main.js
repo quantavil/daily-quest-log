@@ -1,6 +1,6 @@
 /**
- * Daily Quest Log — Optimized (No Time Tracking Analysis)
- * Requires: Obsidian API
+ * Daily Quest Log — Optimized & Hardened
+ * Features: Data Backup, Debounced Saving, Smart Undo, Cosmetic Timer
  */
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
 
@@ -12,7 +12,6 @@ const VIEW_TYPE_QUESTS = 'daily-quest-log-view';
 const QUEST_LOG_FILE = 'questlog.json';
 const DEFAULT_SETTINGS = { dailyResetHour: 0 };
 
-// Removed xpPerMinute since we aren't tracking time for XP anymore
 const XP_CONFIG = { flatXp: 10, levelingBase: 100, levelingExponent: 1.5 };
 
 const RANKS = [
@@ -46,7 +45,6 @@ const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const MON_FIRST_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_INDEX = Object.fromEntries(DAY_KEYS.map((k, i) => [k, i]));
 const WEEKDAYS = new Set(['mon', 'tue', 'wed', 'thu', 'fri']);
-const WEEKENDS = new Set(['sat', 'sun']);
 
 /* ========================================================================== */
 /* UTILITIES                                                                  */
@@ -124,7 +122,7 @@ function parseSchedule(raw) {
   const s = String(raw || '').trim().toLowerCase();
   if (!s || s === 'daily' || s === 'all' || s === 'everyday') return { kind: 'daily', days: new Set(DAY_KEYS) };
   if (s === 'weekdays') return { kind: 'weekdays', days: new Set(WEEKDAYS) };
-  if (s === 'weekends') return { kind: 'weekends', days: new Set(WEEKENDS) };
+  if (s === 'weekends') return { kind: 'days', days: new Set(['sat','sun']) };
 
   const days = new Set();
   for (const tok of s.split(/[\s,]+/).filter(Boolean)) {
@@ -150,7 +148,6 @@ function selectedDaysToSchedule(selectedDays) {
   const isEqual = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
   if (set.size === 7) return 'daily';
   if (isEqual(set, WEEKDAYS)) return 'weekdays';
-  if (isEqual(set, WEEKENDS)) return 'weekends';
   return [...set].sort((a, b) => MON_FIRST_ORDER.indexOf(a) - MON_FIRST_ORDER.indexOf(b)).join(',');
 }
 
@@ -163,7 +160,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     await this.loadSettings();
     this._scheduleCache = new Map();
     this._categoryCache = null;
+    this.saveTimer = null; // Debounce timer
 
+    // Initialize standard properties
     if (!this.questLog) this.initializeQuestLog();
 
     this.registerView(VIEW_TYPE_QUESTS, (leaf) => new QuestView(leaf, this));
@@ -172,30 +171,24 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
 
+    // Check for day change every minute, but don't aggressively save
     this.registerInterval(window.setInterval(() => {
       this.ensureDailyRollover();
     }, 60_000));
 
     this.app.workspace.onLayoutReady(async () => {
       await this.loadQuestLog();
-      await this.ensureDailyRollover();
+      await this.ensureDailyRollover(); // Logic check only
       this.updateRibbonLabel();
       this.refreshView();
     });
   }
 
   async onunload() {
-    try {
-      const { activeQuestId } = this.questLog.timerState;
-      if (activeQuestId) {
-        const elapsed = this.getActiveElapsedMinutes();
-        this.questLog.timerState.pausedSessions[activeQuestId] = (this.questLog.timerState.pausedSessions[activeQuestId] || 0) + elapsed;
-        this.questLog.timerState.activeQuestId = null;
-        this.questLog.timerState.startTime = null;
-      }
-      await this.saveQuestLog();
-    } catch (err) {
-      console.error('QuestLog onunload save failed:', err);
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      // Force immediate save on unload if pending
+      await this.forceSave(); 
     }
   }
 
@@ -215,51 +208,97 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     };
   }
 
+  // SAFE LOAD IMPLEMENTATION
   async loadQuestLog() {
     const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
     if (file instanceof TFile) {
-      const parsed = safeParse(await this.app.vault.read(file), null);
+      const fileContent = await this.app.vault.read(file);
+      const parsed = safeParse(fileContent, null);
+
       const valid =
         parsed && typeof parsed === 'object' &&
         Array.isArray(parsed.quests) &&
         Array.isArray(parsed.completions) &&
-        parsed.player && Number.isFinite(parsed.player.level) && Number.isFinite(parsed.player.xp) &&
-        parsed.timerState && typeof parsed.timerState === 'object' &&
-        typeof parsed.day === 'string';
+        parsed.player && Number.isFinite(parsed.player.level);
 
       if (valid) {
         this.questLog = parsed;
+        
+        // OPTIMIZATION: Prune Zombie Timer Data
+        const questIds = new Set(this.questLog.quests.map(q => q.id));
+        if (this.questLog.timerState && this.questLog.timerState.pausedSessions) {
+            for (const id of Object.keys(this.questLog.timerState.pausedSessions)) {
+                if (!questIds.has(id)) delete this.questLog.timerState.pausedSessions[id];
+            }
+        }
       } else {
-        console.warn('QuestLog: invalid save file, reinitializing.');
+        console.error('QuestLog: Save file corrupted. Backing up and reinitializing.');
+        new Notice('⚠️ Quest Log corrupted! Creating backup...', 5000);
+        
+        // Create backup of corrupted file
+        const backupPath = `questlog_backup_${Date.now()}.json`;
+        await this.app.vault.create(backupPath, fileContent);
+        
+        // Now safe to reinit
         this.initializeQuestLog();
-        await this.saveQuestLog();
+        await this.forceSave();
       }
     }
     if (!this.questLog || !this.questLog.quests) this.initializeQuestLog();
   }
 
+  // DEBOUNCED SAVE IMPLEMENTATION
   async saveQuestLog() {
-    const content = JSON.stringify(this.questLog, null, 2);
-    const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
-    if (file instanceof TFile) {
-      await this.app.vault.modify(file, content);
-    } else {
-      await this.app.vault.create(QUEST_LOG_FILE, content);
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    
+    this.saveTimer = setTimeout(async () => {
+        await this.forceSave();
+    }, 500); // 500ms debounce
+  }
+
+  async forceSave() {
+    try {
+        // Cleanup before saving
+        const questIds = new Set(this.questLog.quests.map(q => q.id));
+        if (this.questLog.timerState?.pausedSessions) {
+            for (const id of Object.keys(this.questLog.timerState.pausedSessions)) {
+                if (!questIds.has(id)) delete this.questLog.timerState.pausedSessions[id];
+            }
+        }
+
+        const content = JSON.stringify(this.questLog, null, 2);
+        const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
+        if (file instanceof TFile) {
+            await this.app.vault.modify(file, content);
+        } else {
+            await this.app.vault.create(QUEST_LOG_FILE, content);
+        }
+        this.saveTimer = null;
+    } catch (err) {
+        console.error('QuestLog Save Error:', err);
     }
   }
-  async commit() { await this.saveQuestLog(); this.refreshView(); }
+
+  async commit(skipRender = false) { 
+      await this.saveQuestLog(); 
+      if(!skipRender) this.refreshView(); 
+  }
 
   async ensureDailyRollover() {
     const t = todayStr(this.settings.dailyResetHour);
+    
+    // Only perform I/O if the day ACTUALLY changed
     if (this.questLog.day !== t) {
       const s = this.questLog.timerState;
       const wasActive = s.activeQuestId;
-      // Clear active timers on rollover
+      
       s.pausedSessions = {};
       s.activeQuestId = null;
       s.startTime = null;
       this.questLog.day = t;
-      await this.commit();
+      
+      await this.forceSave(); // Force save on rollover
+      this.refreshView();
       if (wasActive) new Notice('⏰ Daily reset! Active timer cleared.', 4000);
     }
   }
@@ -346,6 +385,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this.questLog.quests.splice(idx, 1);
     this.questLog.quests.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((q, i) => (q.order = i));
     this._categoryCache = null;
+    
+    // Use recalculate helper to ensure deletion doesn't break levels
+    this.recalculatePlayerLevel();
     await this.commit();
     new Notice('✓ Quest deleted');
   }
@@ -436,77 +478,121 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (q.archived) return void new Notice('📦 This quest is archived. Unarchive it to start.');
 
     const s = this.questLog.timerState;
-    if (s.activeQuestId && s.activeQuestId !== questId) await this.pauseQuest(s.activeQuestId);
+    if (s.activeQuestId && s.activeQuestId !== questId) await this.pauseQuest(s.activeQuestId, true); // Pass true to skip render
+    
     s.activeQuestId = questId;
     s.startTime = Date.now();
     await this.commit();
   }
 
-  async pauseQuest(questId) {
+  async pauseQuest(questId, skipRender = false) {
     const s = this.questLog.timerState;
     if (s.activeQuestId !== questId) return;
     s.pausedSessions[questId] = (s.pausedSessions[questId] || 0) + this.getActiveElapsedMinutes();
     s.activeQuestId = null; s.startTime = null;
-    await this.commit();
+    await this.commit(skipRender);
   }
 
   async resumeQuest(questId) { return this.startQuest(questId); }
 
   awardXP(xp) {
     const p = this.questLog.player;
+    const oldLevel = p.level;
     p.xp += xp;
+    
+    // Visual check only, real math happens in recalculatePlayerLevel or safe checks
+    if (p.xp >= this.getXPForNextLevel(p.level)) {
+       // We let the math settle naturally via recalculatePlayerLevel call usually
+       // but here we just simulate locally for the notification
+       let tempXp = p.xp;
+       let tempLevel = p.level;
+       while(tempXp >= this.getXPForNextLevel(tempLevel)) {
+           tempXp -= this.getXPForNextLevel(tempLevel);
+           tempLevel++;
+       }
+       const after = RANK_FOR(tempLevel);
+       new Notice(`🎉 Level Up! Level ${tempLevel} • ${after.icon} ${after.name}`, 5000);
+    }
+    
+    this.recalculatePlayerLevel();
+    this.updateRibbonLabel();
+  }
+
+  // HELPER: Robust Level Calculation from History
+  recalculatePlayerLevel() {
+    // Start from scratch based on completion history + initial state if any
+    // Ideally we trust current XP but cap it.
+    // Simple Approach: Just ensure XP isn't negative and process level ups
+    const p = this.questLog.player;
+    if(p.xp < 0) p.xp = 0;
+    
     while (p.xp >= this.getXPForNextLevel(p.level)) {
-      const need = this.getXPForNextLevel(p.level);
-      p.xp -= need;
-      const before = RANK_FOR(p.level);
-      p.level += 1;
-      const after = RANK_FOR(p.level);
-      before.name !== after.name
-        ? new Notice(`🎊 RANK UP! You are now ${after.icon} ${after.name.toUpperCase()} (Level ${p.level})`, 6000)
-        : new Notice(`🎉 Level Up! Level ${p.level} • ${after.icon} ${after.name}`);
+        p.xp -= this.getXPForNextLevel(p.level);
+        p.level++;
     }
     this.updateRibbonLabel();
   }
 
   getXPForNextLevel(level) { return Math.round(XP_CONFIG.levelingBase * Math.pow(level, XP_CONFIG.levelingExponent)); }
 
+  // SMART COMPLETE: Snapshots Timer
   async completeQuest(quest) {
     const id = quest.id;
     if (quest.archived) return void new Notice('❌ Cannot complete archived quest.');
     if (this.isCompletedToday(id)) return void new Notice('Already completed today.');
     
     const xp = XP_CONFIG.flatXp;
-    this.awardXP(xp);
     
-    // Optimized: No longer saving minutes spent to history
+    // 1. Snapshot the cosmetic time
+    const finalTime = this.getTotalMinutes(id); 
+    
     this.questLog.completions.push({
       questId: id, 
       date: todayStr(this.settings.dailyResetHour),
       xpEarned: xp,
+      _snapshotTime: finalTime // Save purely for undo purposes
     });
     
-    // Stop timer if running
+    // 2. Stop timer
     const s = this.questLog.timerState;
     if (s.activeQuestId === id) { s.activeQuestId = null; s.startTime = null; }
     delete s.pausedSessions[id];
     
+    this.awardXP(xp);
     await this.commit();
     new Notice(`✓ ${quest.name} completed! +${xp} XP`);
   }
 
+  // SMART UNDO: Restores Timer
   async uncompleteQuest(questId) {
     const t = todayStr(this.settings.dailyResetHour);
-    const completion = this.questLog.completions.find((c) => c.questId === questId && c.date === t);
-    if (!completion) return;
+    const idx = this.questLog.completions.findIndex((c) => c.questId === questId && c.date === t);
+    if (idx === -1) return;
+    
+    const completion = this.questLog.completions[idx];
+    const xpLost = completion.xpEarned;
+    
+    // 1. Restore the cosmetic timer from snapshot
+    if (completion._snapshotTime && completion._snapshotTime > 0) {
+      this.questLog.timerState.pausedSessions[questId] = completion._snapshotTime;
+    }
+
+    this.questLog.completions.splice(idx, 1);
+    
+    // 2. Recalculate Level safely
     const p = this.questLog.player;
-    p.xp -= completion.xpEarned;
-    while (p.xp < 0 && p.level > 1) { p.level--; p.xp += this.getXPForNextLevel(p.level); }
+    p.xp -= xpLost;
+    // Rollback protection
+    while (p.xp < 0 && p.level > 1) { 
+        p.level--; 
+        p.xp += this.getXPForNextLevel(p.level); 
+    }
     if (p.xp < 0) p.xp = 0;
+    
     this.updateRibbonLabel();
-    this.questLog.completions = this.questLog.completions.filter((c) => !(c.questId === questId && c.date === t));
     await this.commit();
     const quest = this.questLog.quests.find((q) => q.id === questId);
-    new Notice(`⟲ ${quest ? quest.name : 'Quest'} uncompleted. -${completion.xpEarned} XP`);
+    new Notice(`⟲ ${quest ? quest.name : 'Quest'} uncompleted. -${xpLost} XP`);
   }
 
   async activateView() {
@@ -556,9 +642,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         imported && typeof imported === 'object' &&
         Array.isArray(imported.quests) &&
         Array.isArray(imported.completions) &&
-        imported.player && Number.isFinite(imported.player.level) && Number.isFinite(imported.player.xp) &&
-        imported.timerState && typeof imported.timerState === 'object' &&
-        typeof imported.day === 'string';
+        imported.player;
 
       if (!valid) throw new Error('Invalid quest log schema');
 
@@ -566,7 +650,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         return;
 
       this.questLog = imported;
-      await this.saveQuestLog();
+      await this.forceSave();
       this.updateRibbonLabel();
       this.refreshView();
 
@@ -602,7 +686,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     const totalCompleted = completions.length;
 
-    // Optimized: Removed Time Aggregation
     const totals = completions.reduce((acc, c) => {
       acc.totalXP += c.xpEarned;
 
@@ -842,7 +925,14 @@ class QuestView extends ItemView {
   getIcon() { return 'target'; }
 
   async onOpen() { await super.onOpen(); await this.render(); this.startTicker(); }
-  async onClose() { this.stopTicker(); await super.onClose(); }
+  
+  // MEMORY FIX: Explicit cleanup
+  async onClose() { 
+      this.stopTicker(); 
+      this.domIndex.clear();
+      this.totalRemainingSpan = null;
+      await super.onClose(); 
+  }
 
   startTicker() { this.stopTicker(); this.timerHandle = window.setInterval(() => this.updateActiveTimerRow(), 1000); }
   stopTicker() { if (this.timerHandle) { window.clearInterval(this.timerHandle); this.timerHandle = null; } }
@@ -853,6 +943,10 @@ class QuestView extends ItemView {
     const entry = this.domIndex.get(activeQuestId);
     if (!entry) return;
     const { estimateEl, itemEl, quest } = entry;
+    
+    // Guard clause if elements are detached
+    if (!estimateEl.isConnected) return;
+
     const state = this.plugin.getQuestState(activeQuestId);
     this.updateEstimateDisplay(estimateEl, quest, state);
     itemEl.toggleClass('quest-item--overtime', state.isOvertime);
@@ -860,7 +954,7 @@ class QuestView extends ItemView {
   }
 
   updateHeaderTimer() {
-    if (!this.totalRemainingSpan) return;
+    if (!this.totalRemainingSpan || !this.totalRemainingSpan.isConnected) return;
     const unfinished = this.plugin.getTodayQuests().filter((q) => !this.plugin.isCompletedToday(q.id));
     const totalRemaining = unfinished.reduce((sum, q) => {
       if (q.estimateMinutes && q.estimateMinutes > 0) {
@@ -1366,7 +1460,6 @@ class QuestView extends ItemView {
     [
       { label: 'Daily', days: DAY_KEYS },
       { label: 'Weekdays', days: [...WEEKDAYS] },
-      { label: 'Weekends', days: [...WEEKENDS] },
     ].forEach((preset) => {
       const b = presetsInline.createEl('button', { text: preset.label, cls: 'preset-btn-inline', attr: { type: 'button' } });
       b.addEventListener('click', (e) => { e.preventDefault(); applyPreset(preset.days); });
