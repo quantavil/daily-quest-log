@@ -10,7 +10,7 @@ const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal, TFold
 const VIEW_TYPE_QUESTS = 'daily-quest-log-view';
 const QUEST_LOG_FILE = 'questlog.json';
 const BACKUP_FOLDER_NAME = 'QuestLog_Backups';
-const DEFAULT_SETTINGS = {}; // No settings needed for hardcoded UTC midnight
+const DEFAULT_SETTINGS = { rolloverOffset: 0 };
 
 const XP_CONFIG = { flatXp: 10, levelingBase: 100, levelingExponent: 1.5 };
 
@@ -50,17 +50,10 @@ const WEEKDAYS = new Set(['mon', 'tue', 'wed', 'thu', 'fri']);
 /* UTILITIES (UTC STANDARDIZED)                                               */
 /* ========================================================================== */
 
-// Returns YYYY-MM-DD based on strict UTC 00:00
-const getUtcTodayStr = () => {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-    .toISOString()
-    .split('T')[0];
-};
+ 
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-const safeParse = (str, fallback = null) => { try { return JSON.parse(str); } catch { return fallback; } };
-const genId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15));
+const genId = () => crypto.randomUUID().replace(/-/g, '');
 
 const formatTime = (minutes) => {
   const totalSeconds = Math.max(0, Math.floor((minutes || 0) * 60));
@@ -124,8 +117,6 @@ function parseSchedule(raw) {
   return { kind: 'days', days };
 }
 
-// Use UTC Day for scheduling
-const isScheduledToday = (schedule) => parseSchedule(schedule).days.has(DAY_KEYS[new Date().getUTCDay()]);
 const parseSelectedDaysFromSchedule = (schedule) => new Set(parseSchedule(schedule).days);
 
 function selectedDaysToSchedule(selectedDays) {
@@ -143,10 +134,9 @@ function selectedDaysToSchedule(selectedDays) {
 module.exports = class DailyQuestLogPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
-    this._scheduleCache = new Map();
     this._categoryCache = null;
     this.saveTimer = null;
-    this.isInternalSave = false;
+    this.lastSavedData = '';
 
     await this.loadQuestLog();
 
@@ -167,10 +157,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     });
     this.registerEvent(
       this.app.vault.on('modify', async (file) => {
-        if (this.isInternalSave) return;
         if (file.path === QUEST_LOG_FILE) {
-          await this.loadQuestLog();
-          this.refreshView();
+          const fileContent = await this.app.vault.read(file);
+          if (fileContent !== this.lastSavedData) {
+            await this.loadQuestLog();
+            this.refreshView();
+          }
         }
       })
     );
@@ -190,13 +182,21 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
   async saveSettings() { await this.saveData(this.settings); }
 
+  getTodayDateStr() {
+    const now = new Date();
+    const offset = this.settings.rolloverOffset || 0;
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const serverTime = new Date(utc + (3600000 * offset));
+    return serverTime.toISOString().split('T')[0];
+  }
+
   initializeQuestLog() {
     this.questLog = {
       quests: [],
       completions: [],
       player: { level: 1, xp: 0 },
       timerState: { activeQuestId: null, startTime: null, pausedSessions: {} },
-      day: getUtcTodayStr(),
+      day: this.getTodayDateStr(),
     };
   }
 
@@ -230,7 +230,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   async performBackup(suffix = '') {
     try {
       // Backup name based on the stored day (history)
-      const dateStr = this.questLog.day || getUtcTodayStr();
+      const dateStr = this.questLog.day || this.getTodayDateStr();
       const backupFileName = `questlog_${dateStr}${suffix}.json`;
       const backupPath = `${BACKUP_FOLDER_NAME}/${backupFileName}`;
 
@@ -262,14 +262,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     try {
       const content = JSON.stringify(this.questLog, null, 2);
+      this.lastSavedData = content;
       const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
-      this.isInternalSave = true;
       if (file instanceof TFile) await this.app.vault.modify(file, content);
       else await this.app.vault.create(QUEST_LOG_FILE, content);
-      setTimeout(() => { this.isInternalSave = false; }, 100);
     } catch (err) {
       console.error('QuestLog Save Error:', err);
-      this.isInternalSave = false;
     }
   }
 
@@ -279,7 +277,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async ensureDailyRollover() {
-    const todayUtc = getUtcTodayStr();
+    const todayUtc = this.getTodayDateStr();
 
     if (this.questLog.day !== todayUtc) {
       const s = this.questLog.timerState;
@@ -313,17 +311,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   get today() { return this.questLog.day; }
 
-  parseScheduleCached(schedule) {
-    if (!this._scheduleCache) this._scheduleCache = new Map();
-    if (!this._scheduleCache.has(schedule)) {
-      this._scheduleCache.set(schedule, parseSchedule(schedule));
-    }
-    return this._scheduleCache.get(schedule);
-  }
-
   isScheduledToday(schedule) {
-    // UTC aware check
-    return this.parseScheduleCached(schedule).days.has(DAY_KEYS[new Date().getUTCDay()]);
+    const scheduleObj = parseSchedule(schedule);
+    const todayDateStr = this.getTodayDateStr();
+    const dateObj = new Date(todayDateStr);
+    const dayIndex = dateObj.getUTCDay();
+    return scheduleObj.days.has(DAY_KEYS[dayIndex]);
   }
 
   getCategoryList() {
@@ -353,7 +346,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       schedule: schedule.trim(),
       estimateMinutes: estimateMinutes > 0 ? Math.floor(estimateMinutes) : null,
       order: this.getActiveQuests().length,
-      createdAt: getUtcTodayStr(),
+      createdAt: this.getTodayDateStr(),
       archived: false,
     };
     this.questLog.quests.push(quest);
@@ -373,9 +366,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     }
     if ('estimateMinutes' in changes) {
       changes.estimateMinutes = changes.estimateMinutes > 0 ? Math.floor(changes.estimateMinutes) : null;
-    }
-    if ('schedule' in changes) {
-      this._scheduleCache && this._scheduleCache.clear();
     }
 
     Object.assign(q, changes);
@@ -549,7 +539,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     this.questLog.completions.push({
       questId: id,
-      date: getUtcTodayStr(),
+      date: this.getTodayDateStr(),
       xpEarned: xp,
       _snapshotTime: finalTime
     });
@@ -564,7 +554,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   async uncompleteQuest(questId) {
-    const t = getUtcTodayStr();
+    const t = this.getTodayDateStr();
     const idx = this.questLog.completions.findIndex((c) => c.questId === questId && c.date === t);
     if (idx === -1) return;
 
@@ -600,7 +590,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   refreshView() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_QUESTS)) {
-      if (leaf.view instanceof QuestView) leaf.view.render();
+      if (leaf.view instanceof QuestView) {
+        if (leaf.view.editingId === null) leaf.view.render();
+      }
     }
   }
 
@@ -618,7 +610,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async exportData() {
     try {
-      const path = `QuestLog-Export-${getUtcTodayStr()}.json`;
+      const path = `QuestLog-Export-${this.getTodayDateStr()}.json`;
       const content = JSON.stringify(this.questLog, null, 2);
       const existing = this.app.vault.getAbstractFileByPath(path);
       if (existing instanceof TFile) await this.app.vault.modify(existing, content);
@@ -702,7 +694,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     }, { totalXP: 0, byDate: {}, byQuest: {}, byCategory: {} });
 
     // Use UTC date for stats calculation
-    const todayKey = getUtcTodayStr();
+    const todayKey = this.getTodayDateStr();
     const [y, m, d] = todayKey.split('-').map(Number);
     const anchor = new Date(Date.UTC(y, m - 1, d));
 
@@ -770,7 +762,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
   }
 
   buildReportMarkdown(stats) {
-    const now = getUtcTodayStr();
+    const now = this.getTodayDateStr();
     const rank = RANK_FOR(stats.player.level);
     const xpForNext = this.getXPForNextLevel(stats.player.level);
     const xpProgress = Math.round((stats.player.xp / xpForNext) * 100);
@@ -984,7 +976,7 @@ class QuestView extends ItemView {
     // Header
     const viewHeader = container.createDiv({ cls: 'quest-view-header' });
     const headerTop = viewHeader.createDiv({ cls: 'quest-header-top-compact' });
-    headerTop.createEl('h2', { text: "Today's Quests (UTC)", cls: 'quest-title-compact' });
+    headerTop.createEl('h2', { text: "Today's Quests", cls: 'quest-title-compact' });
 
     const rankCompact = headerTop.createDiv({ cls: 'rank-compact' });
     rankCompact.innerHTML = `
@@ -1386,7 +1378,7 @@ class QuestView extends ItemView {
     const row = z1.createDiv({ cls: 'form-row-two-col' });
 
     const existingCategories = this.plugin.getCategoryList();
-    const datalistId = `category-list-${genId(6)}`;
+    const datalistId = `category-list-${genId().slice(0,6)}`;
 
     const categoryGroup = row.createDiv({ cls: 'form-group-compact' });
     categoryGroup.createEl('label', { text: 'Category', cls: 'form-label-compact' });
@@ -1548,11 +1540,19 @@ class QuestLogSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl('h2', { text: 'Daily Quest Log Settings' });
 
-    // Reset Hour setting removed (Hardcoded to UTC 0)
-    containerEl.createEl('p', {
-        text: '📅 Daily Reset is standardized to 00:00 UTC to ensure consistency across devices.',
-        cls: 'setting-item-description'
-    });
+    new Setting(containerEl)
+      .setName('Rollover Offset (UTC)')
+      .setDesc('Adjust when your "new day" begins relative to UTC. (e.g., -5 for EST, +9 for JST). Default is 0 (UTC midnight).')
+      .addSlider(slider => slider
+        .setLimits(-12, 14, 1)
+        .setValue(this.plugin.settings.rolloverOffset)
+        .setDynamicTooltip()
+        .onChange(async (value) => {
+          this.plugin.settings.rolloverOffset = value;
+          await this.plugin.saveSettings();
+          this.plugin.ensureDailyRollover();
+          this.plugin.refreshView();
+        }));
 
     containerEl.createEl('h3', { text: '💾 Backup & Restore' });
 
