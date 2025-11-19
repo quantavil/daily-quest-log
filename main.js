@@ -1,5 +1,5 @@
 /**
- * Daily Quest Log — Optimized version (No backward compatibility)
+ * Daily Quest Log — Optimized (No Time Tracking Analysis)
  * Requires: Obsidian API
  */
 const { Plugin, TFile, Notice, PluginSettingTab, Setting, ItemView, Modal } = require('obsidian');
@@ -12,7 +12,8 @@ const VIEW_TYPE_QUESTS = 'daily-quest-log-view';
 const QUEST_LOG_FILE = 'questlog.json';
 const DEFAULT_SETTINGS = { dailyResetHour: 0 };
 
-const XP_CONFIG = { xpPerMinute: 1, flatXp: 10, levelingBase: 100, levelingExponent: 1.5 };
+// Removed xpPerMinute since we aren't tracking time for XP anymore
+const XP_CONFIG = { flatXp: 10, levelingBase: 100, levelingExponent: 1.5 };
 
 const RANKS = [
   { name: 'Novice', icon: '🌱', minLevel: 1, maxLevel: 4, color: '#a0d9a0' },
@@ -65,7 +66,6 @@ const todayStr = (resetHour = 0) => {
 const getLogicalToday = (resetHour = 0, now = new Date()) => {
   const d = new Date(now);
   if (d.getHours() < resetHour) d.setDate(d.getDate() - 1);
-  // normalize to noon to dodge DST edges when using getDay()
   d.setHours(12, 0, 0, 0);
   return d;
 };
@@ -98,22 +98,16 @@ const normDay = (v) => {
 /* ========================================================================== */
 
 const ICONS = Object.freeze({
-  // Buttons
   play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
   pause: '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" fill="currentColor"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
-
-  // Stats
   bolt: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
-
-  // Actions
   archive: '<rect x="3" y="3" width="18" height="5" rx="1"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
   unarchive: '<path d="M3 3h18v5H3z"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M12 12v5m-3-3l3-3 3 3"/>',
   trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/>',
   chevronDown: '<polyline points="6 9 12 15 18 9"/>',
-
 });
 
 function svgIcon(name, { size = 16, stroke = 'currentColor', strokeWidth = 2, fill = 'none', attrs = 'stroke-linecap="round" stroke-linejoin="round"' } = {}) {
@@ -166,27 +160,22 @@ function selectedDaysToSchedule(selectedDays) {
 
 module.exports = class DailyQuestLogPlugin extends Plugin {
   async onload() {
-    // 1) Settings must be loaded first
     await this.loadSettings();
     this._scheduleCache = new Map();
     this._categoryCache = null;
 
-    // 2) Safe in-memory state so early renders don't crash
     if (!this.questLog) this.initializeQuestLog();
 
-    // 3) Register UI early so Obsidian can restore the leaf
     this.registerView(VIEW_TYPE_QUESTS, (leaf) => new QuestView(leaf, this));
     this.ribbonEl = this.addRibbonIcon('target', 'Quest Log', () => this.activateView());
     this.updateRibbonLabel();
     this.addCommand({ id: 'open-quest-log', name: 'Open Quest Log', callback: () => this.activateView() });
     this.addSettingTab(new QuestLogSettingTab(this.app, this));
 
-    // Check every minute for daily rollover (stops active timers at reset hour)
     this.registerInterval(window.setInterval(() => {
       this.ensureDailyRollover();
     }, 60_000));
 
-    // 4) Defer disk I/O until workspace/vault is fully ready
     this.app.workspace.onLayoutReady(async () => {
       await this.loadQuestLog();
       await this.ensureDailyRollover();
@@ -236,7 +225,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         Array.isArray(parsed.completions) &&
         parsed.player && Number.isFinite(parsed.player.level) && Number.isFinite(parsed.player.xp) &&
         parsed.timerState && typeof parsed.timerState === 'object' &&
-        parsed.timerState.pausedSessions && typeof parsed.timerState.pausedSessions === 'object' &&
         typeof parsed.day === 'string';
 
       if (valid) {
@@ -266,15 +254,13 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (this.questLog.day !== t) {
       const s = this.questLog.timerState;
       const wasActive = s.activeQuestId;
-      if (wasActive) {
-        const elapsed = this.getActiveElapsedMinutes();
-        s.pausedSessions[wasActive] = (s.pausedSessions[wasActive] || 0) + elapsed;
-      }
+      // Clear active timers on rollover
+      s.pausedSessions = {};
       s.activeQuestId = null;
       s.startTime = null;
       this.questLog.day = t;
       await this.commit();
-      if (wasActive) new Notice('⏰ Daily reset! Active timer paused (time saved).', 4000);
+      if (wasActive) new Notice('⏰ Daily reset! Active timer cleared.', 4000);
     }
   }
 
@@ -369,7 +355,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     if (!q) return void new Notice('❌ Quest not found');
     if (q.archived) return void new Notice('Already archived.');
 
-    // Pause if running
     const s = this.questLog.timerState;
     if (s.activeQuestId === id) await this.pauseQuest(id);
 
@@ -467,10 +452,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async resumeQuest(questId) { return this.startQuest(questId); }
 
-  calculateXP(estimateMinutes, actualMinutes) {
-    return XP_CONFIG.flatXp;
-  }
-
   awardXP(xp) {
     const p = this.questLog.player;
     p.xp += xp;
@@ -493,16 +474,22 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     const id = quest.id;
     if (quest.archived) return void new Notice('❌ Cannot complete archived quest.');
     if (this.isCompletedToday(id)) return void new Notice('Already completed today.');
-    const minutes = this.getTotalMinutes(id);
-    const xp = this.calculateXP(quest.estimateMinutes, minutes);
+    
+    const xp = XP_CONFIG.flatXp;
     this.awardXP(xp);
+    
+    // Optimized: No longer saving minutes spent to history
     this.questLog.completions.push({
-      questId: id, date: todayStr(this.settings.dailyResetHour),
-      minutesSpent: Math.round(minutes), xpEarned: xp,
+      questId: id, 
+      date: todayStr(this.settings.dailyResetHour),
+      xpEarned: xp,
     });
+    
+    // Stop timer if running
     const s = this.questLog.timerState;
     if (s.activeQuestId === id) { s.activeQuestId = null; s.startTime = null; }
     delete s.pausedSessions[id];
+    
     await this.commit();
     new Notice(`✓ ${quest.name} completed! +${xp} XP`);
   }
@@ -571,7 +558,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
         Array.isArray(imported.completions) &&
         imported.player && Number.isFinite(imported.player.level) && Number.isFinite(imported.player.xp) &&
         imported.timerState && typeof imported.timerState === 'object' &&
-        imported.timerState.pausedSessions && typeof imported.timerState.pausedSessions === 'object' &&
         typeof imported.day === 'string';
 
       if (!valid) throw new Error('Invalid quest log schema');
@@ -616,28 +602,25 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     const totalCompleted = completions.length;
 
+    // Optimized: Removed Time Aggregation
     const totals = completions.reduce((acc, c) => {
       acc.totalXP += c.xpEarned;
-      acc.totalMinutes += c.minutesSpent;
 
-      const d = (acc.byDate[c.date] ||= { count: 0, xp: 0, minutes: 0 });
+      const d = (acc.byDate[c.date] ||= { count: 0, xp: 0 });
       d.count++;
       d.xp += c.xpEarned;
-      d.minutes += c.minutesSpent;
 
-      const bq = (acc.byQuest[c.questId] ||= { count: 0, xp: 0, minutes: 0 });
+      const bq = (acc.byQuest[c.questId] ||= { count: 0, xp: 0 });
       bq.count++;
       bq.xp += c.xpEarned;
-      bq.minutes += c.minutesSpent;
 
       const cat = qCategory[c.questId] || 'uncategorized';
-      const bc = (acc.byCategory[cat] ||= { count: 0, xp: 0, minutes: 0 });
+      const bc = (acc.byCategory[cat] ||= { count: 0, xp: 0 });
       bc.count++;
       bc.xp += c.xpEarned;
-      bc.minutes += c.minutesSpent;
 
       return acc;
-    }, { totalXP: 0, totalMinutes: 0, byDate: {}, byQuest: {}, byCategory: {} });
+    }, { totalXP: 0, byDate: {}, byQuest: {}, byCategory: {} });
 
     const resetHour = this.settings.dailyResetHour;
     const todayKey = todayStr(resetHour);
@@ -648,7 +631,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       const day = new Date(anchor);
       day.setDate(day.getDate() - (29 - i));
       const ds = toLocalDMY(day);
-      const x = totals.byDate[ds] || { count: 0, xp: 0, minutes: 0 };
+      const x = totals.byDate[ds] || { count: 0, xp: 0 };
       return { date: ds, ...x };
     });
 
@@ -686,7 +669,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
     const activeDays = last30Days.filter(d => d.count > 0).length;
     const avgDailyXP = activeDays > 0 ? Math.round(totals.totalXP / activeDays) : 0;
-    const avgDailyTime = activeDays > 0 ? Math.round(totals.totalMinutes / activeDays) : 0;
 
     const peakDay = last30Days.reduce((max, day) =>
       day.xp > max.xp ? day : max, { date: 'N/A', xp: 0, count: 0 });
@@ -695,7 +677,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       player,
       totalCompleted,
       totalXP: totals.totalXP,
-      totalMinutes: totals.totalMinutes,
       last30Days,
       last7Days,
       topQuests,
@@ -704,15 +685,12 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       maxStreak,
       activeDays,
       avgDailyXP,
-      avgDailyTime,
       peakDay
     };
   }
 
   buildReportMarkdown(stats) {
     const now = todayStr(this.settings.dailyResetHour);
-    const h = Math.floor(stats.totalMinutes / 60);
-    const m = Math.floor(stats.totalMinutes % 60);
     const rank = RANK_FOR(stats.player.level);
     const xpForNext = this.getXPForNextLevel(stats.player.level);
     const xpProgress = Math.round((stats.player.xp / xpForNext) * 100);
@@ -731,7 +709,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 | 💎 Current XP | **${stats.player.xp}** / ${xpForNext} |
 | ⭐ Lifetime XP | **${stats.totalXP.toLocaleString()}** |
 | ✅ Total Completions | **${stats.totalCompleted}** quests |
-| ⏱️ Time Invested | **${h}h ${m}m** |
 | 🔥 Current Streak | **${stats.currentStreak}** days |
 | 🏅 Best Streak | **${stats.maxStreak}** days |
 
@@ -743,12 +720,6 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
 \`\`\`mermaid
 ${stats.topQuests.length > 0 ? this.generateTopQuestsChart(stats.topQuests) : '---\nconfig:\n    theme: dark\n---\npie title No Data\n    "No completions yet" : 100'}
-\`\`\`
-
-### Time Investment by Quest
-
-\`\`\`mermaid
-${stats.topQuests.length > 0 ? this.generateTimeDistributionChart(stats.topQuests) : '---\nconfig:\n    theme: dark\n---\npie title No Data\n    "No time tracked yet" : 100'}
 \`\`\`
 
 ---
@@ -763,12 +734,11 @@ ${stats.categoryStats.length > 0 ? this.generateCategoryPieChart(stats.categoryS
 
 ### Category Performance Matrix
 
-| Category | Completions | Total XP | Time Spent | Avg XP/Quest |
-|----------|-------------|----------|------------|--------------|
+| Category | Completions | Total XP | Avg XP/Quest |
+|----------|-------------|----------|--------------|
 ${stats.categoryStats.slice(0, 10).map(cat => {
       const avgXP = cat.count > 0 ? Math.round(cat.xp / cat.count) : 0;
-      const timeStr = formatTime(cat.minutes);
-      return `| ${cat.category} | ${cat.count} | ${cat.xp} | ${timeStr} | ${avgXP} |`;
+      return `| ${cat.category} | ${cat.count} | ${cat.xp} | ${avgXP} |`;
     }).join('\n')}
 
 ---
@@ -779,40 +749,31 @@ ${stats.categoryStats.slice(0, 10).map(cat => {
 |--------|-------|
 | 📊 Active Days | ${stats.activeDays} / 30 days |
 | 📈 Avg Daily XP | **${stats.avgDailyXP}** XP |
-| ⏰ Avg Daily Time | **${formatTime(stats.avgDailyTime)}** |
 | 🔝 Peak Day | ${stats.peakDay.xp > 0 ? `${stats.peakDay.date} (**${stats.peakDay.xp}** XP, ${stats.peakDay.count} quests)` : 'No activity'} |
 | 📉 Completion Rate | **${Math.round((stats.activeDays / 30) * 100)}%** |
 
 ---
 
-## 📈 Last 7 Days Activity
-
-### XP Earned
+## 📈 Last 7 Days XP Earned
 
 \`\`\`mermaid
 ${this.generateWeeklyXPChart(stats.last7Days)}
-\`\`\`
-
-### Time Spent (Minutes)
-
-\`\`\`mermaid
-${this.generateWeeklyTimeChart(stats.last7Days)}
 \`\`\`
 
 ---
 
 ## 📋 Monthly Activity Report (Last 30 Days)
 
-| Date | Tasks Completed | XP Earned | Time Spent |
-|------|-----------------|-----------|------------|
+| Date | Tasks Completed | XP Earned |
+|------|-----------------|-----------|
 ${stats.last30Days.map(day => {
-      const timeStr = day.minutes > 0 ? formatTime(day.minutes) : '-';
-      return `| ${day.date} | ${day.count} | ${day.xp} | ${timeStr} |`;
+      return `| ${day.date} | ${day.count} | ${day.xp} |`;
     }).join('\n')}
 
-**Total:** ${stats.totalCompleted} tasks • ${stats.totalXP} XP • ${formatTime(stats.totalMinutes)}
+**Total:** ${stats.totalCompleted} tasks • ${stats.totalXP} XP
 `;
   }
+  
   generateTopQuestsChart(topQuests) {
     const top5 = topQuests.slice(0, 5);
 
@@ -822,26 +783,6 @@ config:
 ---
 pie title Quest Completion Distribution (Top 5)
     ${top5.map(q => `"${this.escapeLabel(this.truncateText(q.name, 20))}" : ${q.count}`).join('\n    ')}`;
-  }
-
-  generateTimeDistributionChart(topQuests) {
-    const top5 = topQuests.slice(0, 5).filter(q => q.minutes > 0);
-
-    if (top5.length === 0) {
-      return `---
-config:
-    theme: forest
----
-pie title No Time Data
-    "No time tracked" : 100`;
-    }
-
-    return `---
-config:
-    theme: forest
----
-pie title Time Investment by Quest (Top 5)
-    ${top5.map(q => `"${this.escapeLabel(this.truncateText(q.name, 20))}" : ${q.minutes}`).join('\n    ')}`;
   }
 
   generateCategoryPieChart(categoryStats) {
@@ -869,19 +810,6 @@ xychart-beta
     bar [${last7Days.map(d => d.xp).join(', ')}]`;
   }
 
-  generateWeeklyTimeChart(last7Days) {
-    const maxMinutes = Math.max(...last7Days.map(d => d.minutes), 10);
-
-    return `---
-config:
-    theme: dark
----
-xychart-beta
-    title "Daily Time Invested (Last 7 Days)"
-    x-axis [${last7Days.map(d => `"${d.date.slice(5)}"`).join(', ')}]
-    y-axis "Minutes" 0 --> ${maxMinutes + 20}
-    bar [${last7Days.map(d => d.minutes).join(', ')}]`;
-  }
   truncateText(text, maxLength) {
     if (!text) return '';
     if (text.length <= maxLength) return text;
@@ -1322,7 +1250,8 @@ class QuestView extends ItemView {
 
       const info = item.createDiv({ cls: 'quest-completed-info' });
       info.createDiv({ cls: 'quest-completed-name', text: quest.name });
-      info.createDiv({ cls: 'quest-completed-meta' }).innerHTML = `<span>+${completion.xpEarned} XP</span> <span>•</span> <span>${formatTime(completion.minutesSpent)}</span>`;
+      // UI update: Only showing XP, no time
+      info.createDiv({ cls: 'quest-completed-meta' }).innerHTML = `<span>+${completion.xpEarned} XP</span>`;
     }
   }
 
@@ -1473,7 +1402,6 @@ class QuestView extends ItemView {
 
     const z3 = editor.createDiv({ cls: 'quest-editor__zone zone3' });
     if (!isNew) {
-      // Archive button with SVG icon
       const archiveBtn = z3.createEl('button', {
         cls: 'btn-secondary',
         attr: { type: 'button', title: 'Archive quest (keep history)' }
@@ -1484,7 +1412,6 @@ class QuestView extends ItemView {
         this.closeInlineEdit();
       });
 
-      // Delete button
       const deleteBtn = z3.createEl('button', { cls: 'btn-danger', attr: { type: 'button', title: 'Delete quest' } });
       deleteBtn.innerHTML = svgIcon('trash', { size: 16 });
       deleteBtn.addEventListener('click', async () => { await this.plugin.deleteQuest(questId); this.closeInlineEdit(); });
