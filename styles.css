@@ -333,6 +333,11 @@
   cursor: grab;
   opacity: .4;
   transition: opacity var(--quest-trans-fast);
+  user-select: none;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .quest-item:hover .quest-drag-handle { opacity: 1; }
 
@@ -360,7 +365,7 @@
 }
 
 .quest-info { grid-column: 3; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.quest-name { font-weight: 700; font-size: .95rem; color: var(--quest-text-primary); line-height: 1.3; }
+.quest-name { font-weight: 700; font-size: .95rem; color: var(--quest-text-primary); line-height: 1.3; word-break: break-word; }
 .quest-name--editable:hover { background: var(--quest-bg-hover); color: var(--quest-brand-cyan); cursor: text; }
 
 /* Estimates & Timer */
@@ -597,4 +602,15 @@
   :root { --quest-xp-height: 28px; --quest-btn-size: 28px; }
   .quest-header-top-compact { flex-wrap: wrap; }
   .xp-stat svg { display: none; }
+}
+
+@keyframes quest-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.shake {
+  animation: quest-shake 0.4s ease-in-out;
+  border-color: var(--quest-danger) !important;
 }
