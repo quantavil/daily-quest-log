@@ -50,22 +50,17 @@ const WEEKDAYS = new Set(['mon', 'tue', 'wed', 'thu', 'fri']);
 /* UTILITIES (UTC STANDARDIZED)                                               */
 /* ========================================================================== */
 
-// Returns YYYY-MM-DD in UTC
+// Returns YYYY-MM-DD based on strict UTC 00:00
 const getUtcTodayStr = () => {
-  // FIXED: Use Local Time instead of UTC
   const now = new Date();
-  const offset = now.getTimezoneOffset() * 60000;
-  const localDate = new Date(now - offset);
-  return localDate.toISOString().split('T')[0];
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    .toISOString()
+    .split('T')[0];
 };
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const safeParse = (str, fallback = null) => { try { return JSON.parse(str); } catch { return fallback; } };
-const genId = (len = 12) => {
-  const bytes = new Uint8Array(len);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
-};
+const genId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15));
 
 const formatTime = (minutes) => {
   const totalSeconds = Math.max(0, Math.floor((minutes || 0) * 60));
@@ -151,8 +146,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     this._scheduleCache = new Map();
     this._categoryCache = null;
     this.saveTimer = null;
+    this.isInternalSave = false;
 
-    if (!this.questLog) this.initializeQuestLog();
+    await this.loadQuestLog();
 
     this.registerView(VIEW_TYPE_QUESTS, (leaf) => new QuestView(leaf, this));
     this.ribbonEl = this.addRibbonIcon('target', 'Quest Log', () => this.activateView());
@@ -165,13 +161,13 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
     }, 60_000));
 
     this.app.workspace.onLayoutReady(async () => {
-      await this.loadQuestLog();
-      await this.ensureDailyRollover(); 
+      await this.ensureDailyRollover();
       this.updateRibbonLabel();
       this.refreshView();
     });
     this.registerEvent(
       this.app.vault.on('modify', async (file) => {
+        if (this.isInternalSave) return;
         if (file.path === QUEST_LOG_FILE) {
           await this.loadQuestLog();
           this.refreshView();
@@ -185,7 +181,7 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    await this.forceSave();
+    if (this.questLog) await this.forceSave();
   }
 
   async loadSettings() {
@@ -218,9 +214,9 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
           throw new Error('Invalid Schema');
         }
       } catch (e) {
-        console.error('QuestLog: Resetting due to corruption/missing file.');
-        this.initializeQuestLog(); // Hard reset if file is bad
-        await this.forceSave();
+        console.error('QuestLog: Read Error', e);
+        new Notice("⚠️ Quest Log file is corrupt! Aborting load to protect data.");
+        if (!this.questLog) this.initializeQuestLog();
       }
     } else {
       this.initializeQuestLog();
@@ -264,15 +260,16 @@ module.exports = class DailyQuestLogPlugin extends Plugin {
 
   async forceSave() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
-    
     try {
       const content = JSON.stringify(this.questLog, null, 2);
       const file = this.app.vault.getAbstractFileByPath(QUEST_LOG_FILE);
-      
+      this.isInternalSave = true;
       if (file instanceof TFile) await this.app.vault.modify(file, content);
       else await this.app.vault.create(QUEST_LOG_FILE, content);
+      setTimeout(() => { this.isInternalSave = false; }, 100);
     } catch (err) {
       console.error('QuestLog Save Error:', err);
+      this.isInternalSave = false;
     }
   }
 
